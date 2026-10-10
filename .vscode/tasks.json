@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Installer : venv + dépendances",
+      "type": "shell",
+      "command": "python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-dev.txt",
+      "windows": {
+        "command": "py -m venv .venv; if ($?) { .\\.venv\\Scripts\\python.exe -m pip install -r requirements-dev.txt }"
+      },
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "Installer : dépendances (interpréteur sélectionné)",
+      "type": "process",
+      "command": "${command:python.interpreterPath}",
+      "args": ["-m", "pip", "install", "-r", "requirements-dev.txt"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "Lancer le serveur web",
+      "type": "process",
+      "command": "${command:python.interpreterPath}",
+      "args": ["manage.py", "runserver"],
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Lancer les tests",
+      "type": "process",
+      "command": "${command:python.interpreterPath}",
+      "args": ["-m", "pytest"],
+      "group": { "kind": "test", "isDefault": true },
+      "problemMatcher": []
+    }
+  ]
+}

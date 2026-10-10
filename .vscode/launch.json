@@ -1,0 +1,47 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Django : serveur web (http://127.0.0.1:8000)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/manage.py",
+      "args": ["runserver", "127.0.0.1:8000"],
+      "django": true,
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "CLI : Paris -> Saint-Lô",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "ev_trip",
+      "args": [
+        "Paris", "Saint-Lô",
+        "--temp", "${input:temperature}",
+        "--battery", "52",
+        "--soc", "90",
+        "--min-soc", "10"
+      ],
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "Tests : pytest",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["-v"],
+      "justMyCode": false,
+      "console": "integratedTerminal"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "temperature",
+      "type": "promptString",
+      "description": "Température extérieure (°C)",
+      "default": "8"
+    }
+  ]
+}

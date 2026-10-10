@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ev-trip"
+version = "0.1.0"
+description = "Simulation de la charge restante d'une voiture électrique sur un trajet (OSM/OSRM)"
+requires-python = ">=3.10"
+dependencies = ["requests>=2.31"]
+
+[project.optional-dependencies]
+web = ["django>=5.0"]
+dev = ["pytest>=8", "pytest-django>=4.8", "django>=5.0"]
+
+[project.scripts]
+ev-trip = "ev_trip.cli:main"
+
+[tool.setuptools]
+packages = ["ev_trip", "trips", "web_project"]
+
+[tool.setuptools.package-data]
+trips = ["templates/trips/*.html"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+DJANGO_SETTINGS_MODULE = "web_project.settings"

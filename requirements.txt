@@ -1,0 +1,2 @@
+requests>=2.31
+django>=5.0
