@@ -12,6 +12,14 @@
       "console": "integratedTerminal"
     },
     {
+      "name": "Dash : tableau de bord (http://127.0.0.1:8050)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "interfaces.dash_ui",
+      "justMyCode": true,
+      "console": "integratedTerminal"
+    },
+    {
       "name": "CLI : Paris -> Saint-Lô",
       "type": "debugpy",
       "request": "launch",

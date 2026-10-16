@@ -11,18 +11,19 @@ dependencies = ["requests>=2.31"]
 
 [project.optional-dependencies]
 web = ["django>=5.0"]
-dev = ["pytest>=8", "pytest-django>=4.8", "django>=5.0"]
+dash = ["dash>=3.0", "dash-bootstrap-components>=2.0", "dash-leaflet>=1.0"]
+dev = ["pytest>=8", "pytest-django>=4.8", "django>=5.0", "dash>=3.0", "dash-bootstrap-components>=2.0", "dash-leaflet>=1.0"]
 
 [project.scripts]
 ev-trip = "ev_trip.cli:main"
 
 [tool.setuptools]
-packages = ["ev_trip", "trips", "web_project"]
+packages = ["ev_trip", "ev_trip.domain", "ev_trip.providers", "ev_trip.application", "interfaces", "interfaces.django_ui", "interfaces.dash_ui"]
 
 [tool.setuptools.package-data]
-trips = ["templates/trips/*.html"]
+"interfaces.django_ui" = ["templates/django_ui/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
-DJANGO_SETTINGS_MODULE = "web_project.settings"
+DJANGO_SETTINGS_MODULE = "interfaces.django_ui.settings"

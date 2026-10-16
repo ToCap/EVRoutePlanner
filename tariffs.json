@@ -1,0 +1,9 @@
+{
+  "_aide": "Prix en €/kWh par opérateur. Clés d'opérateur : sous-chaîne du nom/opérateur/réseau/marque OSM (insensible à la casse, la plus longue l'emporte). Types : rapide, normale, any (par défaut). Un opérateur absent = prix inconnu (critère neutre). Le tag OSM « charge » prime sur ce fichier. Les clés commençant par _ sont ignorées.",
+  "operators": {},
+  "_exemple": {
+    "ionity": {"rapide": 0.69},
+    "tesla": {"rapide": 0.45},
+    "mon opérateur": {"rapide": 0.55, "normale": 0.40, "any": 0.45}
+  }
+}

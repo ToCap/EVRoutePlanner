@@ -2,19 +2,18 @@ import requests
 import pytest
 
 from ev_trip import cli
-from ev_trip.config import ConsumptionConfig
-from ev_trip.errors import GeocodingError, RoadClassificationError
-from ev_trip.geocoding import geocode
-from ev_trip.geo import haversine_km
-from ev_trip.models import Point, Route, VehicleParams
-from ev_trip.road_types import (
-    OverpassRoadClassifier, best_way_type, classify_by_speed, classify_highway, parse_maxspeed,
-)
-from ev_trip.routing import osrm_route
-from ev_trip.trip import run_trip
+from ev_trip.domain.config import ConsumptionConfig
+from ev_trip.domain.errors import GeocodingError, RoadClassificationError
+from ev_trip.providers.nominatim import geocode
+from ev_trip.domain.geo import haversine_km
+from ev_trip.domain.models import Point, Route, VehicleParams
+from ev_trip.domain.road_classification import best_way_type, classify_by_speed, classify_highway, parse_maxspeed
+from ev_trip.providers.overpass import OverpassRoadClassifier, parse_retry_after
+from ev_trip.providers.osrm import osrm_route
+from ev_trip.application.trip import run_trip
 
 
-# --- tags OSM ------------------------------------------------------------------
+# --- OSM tags ------------------------------------------------------------------
 @pytest.mark.parametrize(
     "tags, expected",
     [
@@ -74,10 +73,10 @@ def test_best_way_prefers_important_road_on_near_tie():
     assert best_way_type(p, [service, motorway], 30) == "autoroute"
 
 
-# --- Overpass (faux serveur) -------------------------------------------------------
+# --- Overpass (fake server) -------------------------------------------------------
 class FakeResponse:
-    def __init__(self, payload=None, status=200):
-        self.payload, self.status_code = payload, status
+    def __init__(self, payload=None, status=200, headers=None):
+        self.payload, self.status_code, self.headers = payload, status, headers or {}
 
     def raise_for_status(self):
         if self.status_code >= 400:
@@ -107,7 +106,7 @@ def test_overpass_classifier_batches_and_classifies():
     assert len(sess.calls) == 2
     query = sess.calls[0][1]["data"]["data"]
     assert "around:30" in query and "48.000000,2.000000" in query and "out tags geom" in query
-    # Overpass répond 406 sans User-Agent explicite
+    # Overpass answers 406 without an explicit User-Agent
     assert sess.calls[0][1]["headers"]["User-Agent"].startswith("ev-trip-simulator")
 
 
@@ -124,6 +123,54 @@ def test_overpass_failure_raises_after_retries():
     with pytest.raises(RoadClassificationError):
         clf.classify([Point(48, 2)])
     assert len(sess.calls) == 2
+
+
+# --- Retry-After ----------------------------------------------------------------------
+def test_parse_retry_after_formats():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 10, 21, 7, 27, 30, tzinfo=timezone.utc)
+    assert parse_retry_after("7") == 7
+    assert parse_retry_after(" 2.5 ") == 2.5
+    assert parse_retry_after("Wed, 21 Oct 2026 07:28:00 GMT", now=now) == 30
+    assert parse_retry_after("Wed, 21 Oct 2026 07:00:00 GMT", now=now) == 0  # past date
+    assert parse_retry_after("-5") == 0
+    assert parse_retry_after("bientôt") is None and parse_retry_after("") is None and parse_retry_after(None) is None
+
+
+@pytest.fixture
+def sleeps(monkeypatch):
+    calls = []
+    monkeypatch.setattr("ev_trip.providers.overpass.time.sleep", calls.append)
+    return calls
+
+
+def test_overpass_waits_the_retry_after_delay_on_429(sleeps):
+    sess = FakeSession([FakeResponse(status=429, headers={"Retry-After": "7"}), FakeResponse({"elements": []})])
+    clf = OverpassRoadClassifier(session=sess, url=["https://a/api", "https://b/api"], pause_s=0)
+    assert clf.classify([Point(48, 2)]) == [None]
+    assert sleeps == [7.0] and len(sess.calls) == 2
+
+
+def test_overpass_caps_a_very_long_retry_after(sleeps):
+    sess = FakeSession([FakeResponse(status=503, headers={"Retry-After": "600"}), FakeResponse({"elements": []})])
+    clf = OverpassRoadClassifier(session=sess, pause_s=0, max_retry_after_s=30)
+    clf.classify([Point(48, 2)])
+    assert sleeps == [30]
+
+
+def test_overpass_uses_default_backoff_without_retry_after(sleeps):
+    sess = FakeSession([FakeResponse(status=429), FakeResponse(status=429), FakeResponse({"elements": []})])
+    OverpassRoadClassifier(session=sess, pause_s=1).classify([Point(48, 2)])
+    assert sleeps == [2, 4]  # 1 s x (attempt + 1) x 2
+
+
+def test_overpass_does_not_sleep_after_the_last_attempt_and_reports_retry_after(sleeps):
+    sess = FakeSession([FakeResponse(status=429, headers={"Retry-After": "5"})] * 2)
+    clf = OverpassRoadClassifier(session=sess, retries=2, pause_s=0)
+    with pytest.raises(RoadClassificationError, match=r"HTTP 429, Retry-After : 5 s"):
+        clf.classify([Point(48, 2)])
+    assert sleeps == [5.0]  # a single wait: between the 2 attempts, not after the last
 
 
 # --- Nominatim / OSRM ------------------------------------------------------------------
@@ -152,7 +199,7 @@ def test_osrm_route_parsing():
     assert r.distance_km == 2.0 and r.duration_min == 2.0 and r.durations_s == [60.0, 60.0]
 
 
-# --- bout en bout -----------------------------------------------------------------------
+# --- end to end -----------------------------------------------------------------------
 def straight_route(km):
     n = 200
     pts = [Point(48.0 + (km / 111.195) * i / n, 0.0) for i in range(n + 1)]
@@ -160,7 +207,7 @@ def straight_route(km):
 
 
 class KmClassifier:
-    """Ville sur les 7 premiers km, autoroute ensuite."""
+    """City for the first 7 km, motorway after."""
 
     def __init__(self, origin):
         self.origin = origin
@@ -196,7 +243,7 @@ def test_run_trip_end_to_end():
     assert rep.simulation.final_soc_pct == pytest.approx(
         90 - 100 * rep.simulation.total_kwh / 52)
     assert rep.warnings == []
-    # les 3 scénarios partagent les mêmes tranches, seule la consommation change
+    # the 3 scenarios share the same slices, only consumption changes
     sims = rep.simulations
     assert list(sims) == ["optimiste", "moyenne", "pessimiste"] and sims["moyenne"] is rep.simulation
     assert sims["optimiste"].total_kwh < sims["moyenne"].total_kwh < sims["pessimiste"].total_kwh
@@ -208,7 +255,7 @@ def test_run_trip_end_to_end():
 def test_run_trip_falls_back_on_speed_when_osm_is_down():
     rep = make_trip(BrokenClassifier())
     assert rep.warnings and "Overpass" in rep.warnings[0]
-    assert {s.road_type for s in rep.slices} == {"autoroute"}  # 90 km/h moyen -> autoroute
+    assert {s.road_type for s in rep.slices} == {"autoroute"}  # 90 km/h average -> motorway
 
 
 def test_run_trip_without_overpass_uses_speed():

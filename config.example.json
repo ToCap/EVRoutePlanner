@@ -1,12 +1,44 @@
 {
   "consumption_range_kwh_per_100km": {
-    "ville": [11.0, 14.0],
-    "route": [14.0, 15.6],
-    "autoroute": [18.0, 21.0]
+    "ville": [
+      11.0,
+      14.0
+    ],
+    "route": [
+      14.0,
+      15.6
+    ],
+    "autoroute": [
+      18.0,
+      21.0
+    ]
   },
-  "temperature_brackets": [[-5, 0.35], [0, 0.25], [10, 0.15], [15, 0.08], [25, 0.0]],
+  "temperature_brackets": [
+    [
+      -5,
+      0.35
+    ],
+    [
+      0,
+      0.25
+    ],
+    [
+      10,
+      0.15
+    ],
+    [
+      15,
+      0.08
+    ],
+    [
+      25,
+      0.0
+    ]
+  ],
   "temperature_above_last": 0.05,
   "max_slice_km": 10,
   "sample_step_km": 0.5,
-  "min_run_km": 1.0
+  "min_run_km": 1.0,
+  "refine_step_km": 1.0,
+  "min_run_steps_km": 0.5
 }

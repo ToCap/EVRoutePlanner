@@ -1,16 +1,17 @@
 import pytest
 
-from ev_trip.config import SCENARIOS, ConsumptionConfig
-from ev_trip.consumption import consumption_kwh_per_100km
-from ev_trip.geo import haversine_km, resample
-from ev_trip.models import MicroSegment, Point, Route, Slice, VehicleParams
-from ev_trip.simulation import simulate, simulate_all
-from ev_trip.slicing import build_slices, smooth_types
+from ev_trip.domain.config import SCENARIOS, ConsumptionConfig
+from ev_trip.providers.files import load_config
+from ev_trip.domain.consumption import consumption_kwh_per_100km
+from ev_trip.domain.geo import haversine_km, resample
+from ev_trip.domain.models import MicroSegment, Point, Route, Slice, VehicleParams
+from ev_trip.domain.simulation import simulate, simulate_all
+from ev_trip.domain.slicing import build_slices, smooth_types
 
 CFG = ConsumptionConfig()
 
 
-# --- température -----------------------------------------------------------
+# --- temperature -----------------------------------------------------------
 @pytest.mark.parametrize(
     "t, expected",
     [(-10, 0.35), (-5, 0.25), (-0.1, 0.25), (0, 0.15), (9.9, 0.15), (10, 0.08),
@@ -25,7 +26,7 @@ def test_consumption_at_20c_is_base_value():
     assert consumption_kwh_per_100km("ville", 5, CFG) == pytest.approx(12.5 * 1.15)
 
 
-# --- scénarios optimiste / moyenne / pessimiste -------------------------------------
+# --- optimistic / mean / pessimistic scenarios -------------------------------------
 @pytest.mark.parametrize(
     "road, low, high",
     [("ville", 11.0, 14.0), ("route", 14.0, 15.6), ("autoroute", 18.0, 21.0)],
@@ -34,7 +35,7 @@ def test_scenarios_use_low_mean_high_of_each_range(road, low, high):
     assert consumption_kwh_per_100km(road, 20, CFG, "optimiste") == pytest.approx(low)
     assert consumption_kwh_per_100km(road, 20, CFG, "pessimiste") == pytest.approx(high)
     assert consumption_kwh_per_100km(road, 20, CFG, "moyenne") == pytest.approx((low + high) / 2)
-    assert consumption_kwh_per_100km(road, 20, CFG) == pytest.approx((low + high) / 2)  # défaut = moyenne
+    assert consumption_kwh_per_100km(road, 20, CFG) == pytest.approx((low + high) / 2)  # default = mean
 
 
 def test_temperature_applies_to_every_scenario():
@@ -56,9 +57,9 @@ def test_range_validation_and_json_merge(tmp_path):
         ConsumptionConfig(consumption_range_kwh_per_100km={"ville": (11, 14)})
     f = tmp_path / "c.json"
     f.write_text('{"consumption_range_kwh_per_100km": {"ville": [10, 12]}}')
-    cfg = ConsumptionConfig.from_json(f)
+    cfg = load_config(f)
     assert cfg.consumption_range_kwh_per_100km["ville"] == (10.0, 12.0)
-    assert cfg.consumption_range_kwh_per_100km["autoroute"] == (18.0, 21.0)  # valeurs par défaut conservées
+    assert cfg.consumption_range_kwh_per_100km["autoroute"] == (18.0, 21.0)  # default values kept
 
 
 def test_simulate_all_orders_scenarios_and_stops_earlier_when_pessimistic():
@@ -66,7 +67,7 @@ def test_simulate_all_orders_scenarios_and_stops_earlier_when_pessimistic():
     sims = simulate_all(ten_km_slices(40, "autoroute"), veh, 20, CFG)
     assert tuple(sims) == SCENARIOS
     assert [sims[s].scenario for s in SCENARIOS] == list(SCENARIOS)
-    # 24 kWh utilisables : 18 / 19.5 / 21 kWh/100 km -> 133.3 / 123.1 / 114.3 km
+    # 24 kWh usable: 18 / 19.5 / 21 kWh/100 km -> 133.3 / 123.1 / 114.3 km
     assert sims["optimiste"].total_km == pytest.approx(24 / 18 * 100)
     assert sims["moyenne"].total_km == pytest.approx(24 / 19.5 * 100)
     assert sims["pessimiste"].total_km == pytest.approx(24 / 21 * 100)
@@ -75,11 +76,11 @@ def test_simulate_all_orders_scenarios_and_stops_earlier_when_pessimistic():
 
 
 def test_scenarios_can_differ_on_completion():
-    # 50 km d'autoroute : 9 / 9.75 / 10.5 kWh ; 12 kWh, départ 100 %, réserve 10 % (1.2 kWh) -> 10.8 utilisables
+    # 50 km of motorway: 9 / 9.75 / 10.5 kWh; 12 kWh, start 100 %, reserve 10 % (1.2 kWh) -> 10.8 usable
     veh = VehicleParams(12, 100, 10)
     sims = simulate_all(ten_km_slices(5, "autoroute"), veh, 20, CFG)
     assert all(s.completed for s in sims.values())
-    sims = simulate_all(ten_km_slices(5, "autoroute"), VehicleParams(12, 100, 20), 20, CFG)  # 9.6 utilisables
+    sims = simulate_all(ten_km_slices(5, "autoroute"), VehicleParams(12, 100, 20), 20, CFG)  # 9.6 usable
     assert sims["optimiste"].completed and not sims["moyenne"].completed and not sims["pessimiste"].completed
 
 
@@ -99,7 +100,7 @@ def test_long_uniform_stretch_is_cut_every_10km():
 
 
 def test_slice_ends_early_when_road_type_changes():
-    sl = build_slices(segs(*([(0.5, "ville")] * 14 + [(0.5, "autoroute")] * 30)))  # 7 km ville, 15 km autoroute
+    sl = build_slices(segs(*([(0.5, "ville")] * 14 + [(0.5, "autoroute")] * 30)))  # 7 km city, 15 km motorway
     assert [(s.road_type, round(s.length_km, 6)) for s in sl] == [
         ("ville", 7), ("autoroute", 10), ("autoroute", 5)]
     assert [s.index for s in sl] == [1, 2, 3]
@@ -135,7 +136,7 @@ def ten_km_slices(n, rtype="ville"):
 
 def test_soc_decreases_with_expected_energy():
     veh = VehicleParams(battery_kwh=50, start_soc_pct=100, min_soc_pct=10)
-    res = simulate(ten_km_slices(10, "autoroute"), veh, 20, CFG)  # 100 km a 19.5
+    res = simulate(ten_km_slices(10, "autoroute"), veh, 20, CFG)  # 100 km at 19.5
     assert res.total_kwh == pytest.approx(19.5)
     assert res.final_soc_pct == pytest.approx(100 - 19.5 / 50 * 100)
     assert res.alert is None and res.completed
@@ -144,22 +145,22 @@ def test_soc_decreases_with_expected_energy():
 
 
 def test_trip_stops_exactly_at_reserve():
-    # 10 kWh, seuil 50 % -> 5 kWh utilisables ; ville 12.5 kWh/100 km (moyenne) -> arrêt au km 40
+    # 10 kWh, threshold 50 % -> 5 kWh usable; city 12.5 kWh/100 km (mean) -> stop at km 40
     veh = VehicleParams(10, 100, 50)
     res = simulate(ten_km_slices(10), veh, 20, CFG)
     stop_km = 5 / 12.5 * 100
     assert not res.completed
     assert res.alert is not None and res.alert.km == pytest.approx(stop_km)
-    assert res.alert.slice_index == 5  # 4 tranches épuisent exactement l'énergie utilisable
+    assert res.alert.slice_index == 5  # 4 slices use up exactly the usable energy
     assert res.total_km == pytest.approx(stop_km) and res.trip_km == 100
-    assert len(res.results) == 4  # rien n'est simulé au-delà de la réserve
+    assert len(res.results) == 4  # nothing is simulated beyond the reserve
     assert res.results[-1].slice.end_km == pytest.approx(stop_km)
     assert res.final_soc_pct == pytest.approx(50)
     assert res.total_kwh == pytest.approx(5)
 
 
 def test_stop_inside_a_slice_truncates_it():
-    # 10 kWh, réserve 50 % ; ville moyenne 12.5 -> 5 kWh = 40 km ; tranches de 15 km : 15 + 15 + 10 tronquée
+    # 10 kWh, reserve 50 %; mean city 12.5 -> 5 kWh = 40 km; 15 km slices: 15 + 15 + 10 truncated
     slices = [Slice(i + 1, i * 15, (i + 1) * 15, "ville") for i in range(5)]
     res = simulate(slices, VehicleParams(10, 100, 50), 20, CFG)
     assert [round(r.slice.end_km, 6) for r in res.results] == [15, 30, 40]
@@ -181,7 +182,7 @@ def test_zero_reserve_stops_when_battery_is_empty():
 
 
 def test_reserve_reached_exactly_at_arrival_completes_trip():
-    # 100 km a 12.5 kWh/100 km = 12.5 kWh ; 20 kWh de batterie, depart 100 % -> arrivee 37.5 %
+    # 100 km at 12.5 kWh/100 km = 12.5 kWh; 20 kWh battery, start 100 % -> arrival 37.5 %
     res = simulate(ten_km_slices(10), VehicleParams(20, 100, 37.5), 20, CFG)
     assert res.completed and res.alert is None and res.final_soc_pct == pytest.approx(37.5)
 
@@ -209,7 +210,7 @@ def test_vehicle_validation():
         VehicleParams(50, 80, -1)
 
 
-# --- géométrie -----------------------------------------------------------------
+# --- geometry -----------------------------------------------------------------
 def test_haversine_one_degree_of_latitude():
     assert haversine_km(Point(0, 0), Point(1, 0)) == pytest.approx(111.195, abs=0.05)
 
