@@ -14,6 +14,29 @@ def _default_brackets() -> list[tuple[float, float]]:
     return [(-5.0, 0.35), (0.0, 0.25), (10.0, 0.15), (15.0, 0.08), (25.0, 0.0)]
 
 
+@dataclass(frozen=True)
+class ChargerLevel:
+    """Charging level a vehicle can accept (AC or DC) with the kind of outlet it corresponds to."""
+
+    id: str
+    label: str
+    kw: float
+    current: str  # "AC" | "DC"
+    description: str
+
+
+# Highest power first; a DC level is a vehicle limit (a more powerful station still works, capped at `kw`).
+CHARGER_LEVELS = (
+    ChargerLevel("dc100", "100 kW DC (350 A)", 100.0, "DC", "borne de charge rapide"),
+    ChargerLevel("ac22", "22 kW AC (3x32 A)", 22.0, "AC", "borne de recharge domestique"),
+    ChargerLevel("ac11", "11 kW AC (3x16 A)", 11.0, "AC", "borne de recharge domestique"),
+    ChargerLevel("ac7_4", "7,4 kW AC (32 A)", 7.4, "AC", "borne de recharge domestique"),
+    ChargerLevel("ac3_7", "3,7 kW AC (16 A)", 3.7, "AC", "prise domestique renforcée"),
+    ChargerLevel("ac2_3", "2,3 kW AC (10 A)", 2.3, "AC", "prise domestique"),
+)
+DEFAULT_CHARGERS = tuple(level.id for level in CHARGER_LEVELS)
+
+
 @dataclass
 class ChargingConfig:
     """Station search and scoring parameters."""

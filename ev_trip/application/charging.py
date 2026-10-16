@@ -5,8 +5,8 @@ import time
 from typing import Callable
 
 from ev_trip.domain.charging import (
-    ChargingPlan, Station, StationSuggestion, TariffTable, detour_anchors_km, detour_from_via,
-    estimate_detour, need_level, score_station,
+    ChargingPlan, Station, StationSuggestion, TariffTable, apply_chargers, detour_anchors_km, detour_from_via,
+    estimate_detour, need_level, score_station, station_compatible,
 )
 from ev_trip.domain.config import ChargingConfig
 from ev_trip.domain.errors import EVTripError, RoadClassificationError, RoutingError
@@ -14,6 +14,7 @@ from ev_trip.domain.geo import cumulative_km, nearest_on_route, point_at_km
 from ev_trip.domain.models import Point, Route
 from ev_trip.domain.ports import PathFn, StationSource
 from ev_trip.domain.trip_report import TripReport
+from dataclasses import replace
 
 
 def osrm_detour(
@@ -43,6 +44,7 @@ def plan_charging(
     stations: StationSource | None = None,
     detour_fn: Callable[..., tuple[float, float]] | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    chargers: tuple[str, ...] | None = None,
 ) -> ChargingPlan:
     """Stations ranked by relevance score, with a detour <= `max_detour_km`."""
     if max_detour_km <= 0:
@@ -51,6 +53,8 @@ def plan_charging(
         from ev_trip.providers.overpass import OverpassStationSource
 
         stations = OverpassStationSource(cfg=report.config.charging)
+    if chargers:  # the vehicle's accepted charging levels cap the charge power
+        report = replace(report, config=replace(report.config, charging=apply_chargers(report.config.charging, chargers)))
     cc = report.config.charging
     route = report.route
     cum = cumulative_km(route.coordinates)
@@ -63,6 +67,11 @@ def plan_charging(
         plan.warnings.append(f"Recherche des bornes impossible : {exc}")
         return plan
     plan.found = len(found)
+    if chargers:
+        kept = [st for st in found if station_compatible(st, chargers)]
+        if len(kept) < len(found):
+            plan.warnings.append(f"{len(found) - len(kept)} borne(s) écartée(s) : type de chargeur non sélectionné.")
+        found = kept
     if not found:
         return plan
 

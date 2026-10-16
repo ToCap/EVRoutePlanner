@@ -5,7 +5,9 @@ import bisect
 import re
 from dataclasses import dataclass, field
 
-from ev_trip.domain.config import ChargingConfig
+from dataclasses import replace
+
+from ev_trip.domain.config import CHARGER_LEVELS, ChargingConfig
 from ev_trip.domain.consumption import consumption_kwh_per_100km
 from ev_trip.domain.geo import cumulative_km
 from ev_trip.domain.models import Point, Route, SimulationResult, Slice
@@ -148,6 +150,31 @@ def station_from_element(el: dict, cfg: ChargingConfig | None = None) -> Station
         osm_price_eur_kwh=parse_price_eur_kwh(tags.get("charge")),
         tariff_text=tags.get("charge", ""),
     )
+
+
+# --------------------------------------------------------------------------- vehicle chargers
+
+
+def _levels(chargers) -> list:
+    wanted = set(chargers or ())
+    return [lv for lv in CHARGER_LEVELS if lv.id in wanted]
+
+
+def station_compatible(station: Station, chargers) -> bool:
+    """Fast (DC) stations need a DC level, normal (AC) ones an AC level; unknown type: kept; no selection: all kept."""
+    levels = _levels(chargers)
+    if not levels or station.charge_type is None:
+        return True
+    return any(lv.current == ("DC" if station.charge_type == "rapide" else "AC") for lv in levels)
+
+
+def apply_chargers(cfg: ChargingConfig, chargers) -> ChargingConfig:
+    """Config whose vehicle power limits are the highest selected AC / DC levels (others unchanged)."""
+    levels = _levels(chargers)
+    ac = [lv.kw for lv in levels if lv.current == "AC"]
+    dc = [lv.kw for lv in levels if lv.current == "DC"]
+    return replace(cfg, vehicle_max_ac_kw=max(ac) if ac else cfg.vehicle_max_ac_kw,
+                   vehicle_max_dc_kw=max(dc) if dc else cfg.vehicle_max_dc_kw)
 
 
 # --------------------------------------------------------------------------- tariffs

@@ -11,6 +11,7 @@ from typing import Callable, Protocol
 from ev_trip.application.charging import plan_charging
 from ev_trip.application.trip import refine_trip, run_trip
 from ev_trip.domain.charging import ChargingPlan, TariffTable
+from ev_trip.domain.config import CHARGER_LEVELS, DEFAULT_CHARGERS
 from ev_trip.domain.models import VehicleParams
 from ev_trip.domain.trip_report import TripReport
 
@@ -32,6 +33,14 @@ class TripRequest:
     min_soc: float
     use_overpass: bool = True
     max_detour_km: float = 0.0  # 0 = no station search
+    chargers: tuple[str, ...] = DEFAULT_CHARGERS  # charging levels the vehicle accepts (ids of `CHARGER_LEVELS`)
+
+    def __post_init__(self) -> None:
+        known = [level.id for level in CHARGER_LEVELS]
+        unknown = [c for c in self.chargers if c not in known]
+        if unknown:
+            raise ValueError(f"Niveau de recharge inconnu : {', '.join(unknown)}.")
+        object.__setattr__(self, "chargers", tuple(c for c in known if c in self.chargers))  # canonical order: same key
 
     def key(self) -> str:
         return hashlib.sha1(json.dumps(asdict(self), sort_keys=True).encode("utf-8")).hexdigest()
@@ -54,6 +63,7 @@ class TripEntry:
     refined: bool = False
     max_detour_km: float = 0.0
     charging: ChargingPlan | None = None
+    chargers: tuple[str, ...] = DEFAULT_CHARGERS
 
 
 class TripStore(Protocol):
@@ -128,7 +138,7 @@ class TripService:
             use_overpass=request.use_overpass, refine=False,
         )
         busy = report.refinable or request.wants_charging
-        entry = TripEntry(report, REFINING if busy else DONE, None, False, request.max_detour_km, None)
+        entry = TripEntry(report, REFINING if busy else DONE, None, False, request.max_detour_km, None, request.chargers)
         self.store.set(key, entry)
         if busy and self.store.acquire(key):  # one task per trip
             self.runner(lambda: self.run_job(key))
@@ -150,7 +160,7 @@ class TripService:
             errors.append(f"affinage : {exc}")
         if entry.max_detour_km > 0:
             try:
-                charging = self.plan(report, entry.max_detour_km, tariffs=self.tariffs())
+                charging = self.plan(report, entry.max_detour_km, tariffs=self.tariffs(), chargers=entry.chargers)
             except Exception as exc:
                 log.exception("Recherche des bornes impossible")
                 errors.append(f"bornes : {exc}")
@@ -158,6 +168,6 @@ class TripService:
             key,
             TripEntry(
                 report, FAILED if errors else DONE, "; ".join(errors) or None, refined,
-                entry.max_detour_km, charging,
+                entry.max_detour_km, charging, entry.chargers,
             ),
         )

@@ -6,7 +6,7 @@ import sys
 
 import requests
 
-from ev_trip.domain.config import ConsumptionConfig
+from ev_trip.domain.config import CHARGER_LEVELS, DEFAULT_CHARGERS, ConsumptionConfig
 from ev_trip.domain.errors import EVTripError
 from ev_trip.domain.models import VehicleParams
 from ev_trip.application.charging import plan_charging
@@ -36,6 +36,9 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-detour", type=float, metavar="KM",
                    help="Cherche les bornes de recharge à moins de KM de détour et les note")
     p.add_argument("--tariffs", help="JSON de tarifs par opérateur (€/kWh), voir tariffs.json")
+    p.add_argument("--chargers", metavar="IDS", default=",".join(DEFAULT_CHARGERS),
+                   help="Niveaux de recharge acceptés, séparés par des virgules (défaut : tous) : "
+                        + ", ".join(f"{lv.id} = {lv.label}" for lv in CHARGER_LEVELS))
     return p
 
 
@@ -51,6 +54,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.max_detour is not None and args.max_detour <= 0:
             raise ValueError("--max-detour doit être > 0.")
         tariffs = load_tariffs(args.tariffs) if args.tariffs else None
+        chargers = tuple(c.strip() for c in args.chargers.split(",") if c.strip())
+        unknown = [c for c in chargers if c not in DEFAULT_CHARGERS]
+        if unknown or not chargers:
+            raise ValueError("--chargers : niveaux possibles : " + ", ".join(DEFAULT_CHARGERS) + ".")
     except (ValueError, OSError) as exc:
         parser.error(str(exc))
 
@@ -65,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(format_report(report))
     if args.max_detour is not None:
-        print(format_charging(plan_charging(report, args.max_detour, tariffs=tariffs)))
+        print(format_charging(plan_charging(report, args.max_detour, tariffs=tariffs, chargers=chargers)))
     if args.csv:
         write_csv(report, args.csv)
         print(f"\nDétail écrit dans {args.csv}")
