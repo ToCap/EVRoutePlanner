@@ -1,0 +1,124 @@
+"""Dash callbacks: translation between components and `TripService` (no business logic); `register` wires plain handlers."""
+from __future__ import annotations
+
+import logging
+
+import requests
+from dash import Input, Output, State, callback_context, no_update
+import dash_bootstrap_components as dbc
+
+from interfaces.dash_ui import components as ui
+from interfaces.dash_ui.layout import BADGE_HIDDEN, BADGE_SHOWN, SPINNER_HIDDEN, SPINNER_SHOWN
+from interfaces.dash_ui.params import from_query, request_from_values, to_query
+from ev_trip.application.jobs import REFINING, TripService
+from ev_trip.domain.errors import EVTripError
+from ev_trip.presentation import build_charging_data, build_view_data
+
+log = logging.getLogger(__name__)
+FIELD_IDS = ("origin", "destination", "temp-c", "battery-kwh", "soc-slider", "min-slider", "max-detour", "use-overpass")
+FIELD_KEYS = ("origin", "destination", "temp_c", "battery_kwh", "start_soc", "min_soc", "max_detour_km", "use_overpass")
+
+
+def compute(service: TripService, trigger: str | None, values: dict, search: str | None, current_key: str | None):
+    """Starts a trip; returns (key, error message, query string, values to fill back into the form)."""
+    from_url = trigger != "compute-btn"  # page load or URL change
+    if from_url:
+        values = from_query(search)
+        if values is None:
+            return no_update, no_update, no_update, None
+    try:
+        request = request_from_values(values)
+        key, _ = service.start(request)
+    except ValueError as exc:
+        return no_update, dbc.Alert(str(exc), color="danger", className="py-1 mb-0"), no_update, None
+    except (EVTripError, requests.RequestException) as exc:
+        return no_update, dbc.Alert(str(exc), color="danger", className="py-1 mb-0"), no_update, None
+    query = to_query(request)
+    if from_url and key == current_key:
+        return no_update, "", no_update, values
+    return key, "", (no_update if from_url else query), (values if from_url else None)
+
+
+def refresh(service: TripService, key: str | None):
+    """Renders all panels from the current state; returns a dict per output + polling stop."""
+    empty = {"route": [], "markers": [], "status": [], "cards": no_update, "graph": ui.charge_figure(),
+             "detail": [], "stations": [], "poll_disabled": True}
+    if not key:
+        return empty
+    entry = service.get(key)
+    if entry is None:
+        return {**empty, "status": [dbc.Alert("Résultat expiré : relancer le calcul.", color="warning", className="py-1 m-2")]}
+    data = build_view_data(entry.report)
+    if entry.charging is not None:
+        data["charging"] = build_charging_data(entry.charging)
+    requested = entry.max_detour_km > 0
+    return {
+        "route": ui.route_layers(data), "markers": ui.marker_layers(data),
+        "status": ui.banners(entry, data), "cards": ui.scenario_cards(data, entry.report.route.duration_min),
+        "graph": ui.charge_figure(data), "detail": ui.detail_table(data),
+        "stations": ui.stations_table(data.get("charging"), requested),
+        "poll_disabled": entry.state != REFINING,
+    }
+
+
+def map_bounds(service: TripService, key: str | None):
+    entry = service.get(key) if key else None
+    return no_update if entry is None else ui.bounds_of(build_view_data(entry.report))
+
+
+def register(app, service: TripService) -> None:
+    @app.callback(
+        Output("sidebar", "is_open"), Input("open-sidebar", "n_clicks"), Input("close-sidebar", "n_clicks"),
+        State("sidebar", "is_open"), prevent_initial_call=True)
+    def toggle_sidebar(_open, _close, is_open):  # ☰ toggles, ✕ collapses
+        return False if callback_context.triggered_id == "close-sidebar" else not is_open
+
+    # the map and the chart follow the new width: Leaflet and Plotly listen to window resize events
+    app.clientside_callback(
+        """function (open) {
+            [50, 200, 400].forEach(ms => setTimeout(() => window.dispatchEvent(new Event('resize')), ms));
+            return Date.now();
+        }""",
+        Output("resize-sink", "data"), Input("sidebar", "is_open"),
+    )
+
+    outputs = [Output("trip-key", "data"), Output("form-error", "children"), Output("url", "search"), *[Output(i, "value") for i in FIELD_IDS]]
+    states = [State("trip-key", "data"), *[State(i, "value") for i in FIELD_IDS]]
+
+    def handle(trigger, search, current_key, field_values):
+        values = dict(zip(FIELD_KEYS, field_values))
+        key, error, query, filled = compute(service, trigger, values, search, current_key)
+        reported = [filled[k] for k in FIELD_KEYS] if filled else [no_update] * len(FIELD_KEYS)
+        return key, error, query, *reported
+
+    # button: busy indicators (spinner, disabled button) only while a click is being processed
+    @app.callback(
+        *outputs, Input("compute-btn", "n_clicks"), State("url", "search"), *states, prevent_initial_call=True,
+        running=[(Output("compute-btn", "disabled"), True, False),
+                 (Output("compute-spinner", "style"), SPINNER_SHOWN, SPINNER_HIDDEN)],
+    )
+    def on_compute(_clicks, search, current_key, *field_values):
+        return handle("compute-btn", search, current_key, field_values)
+
+    # page load or URL change (shared link): same outputs, no busy indicators
+    @app.callback(
+        *[Output(o.component_id, o.component_property, allow_duplicate=True) for o in outputs],
+        Input("url", "search"), *states, prevent_initial_call="initial_duplicate",
+    )
+    def on_url(search, current_key, *field_values):
+        return handle("url", search, current_key, field_values)
+
+    @app.callback(
+        Output("route-layer", "children"), Output("markers-layer", "children"), Output("status-area", "children"),
+        Output("scenario-cards", "children"), Output("charge-graph", "figure"), Output("detail-table", "children"),
+        Output("stations-table", "children"), Output("poll", "disabled"), Output("refine-badge", "style"),
+        Input("trip-key", "data"), Input("poll", "n_intervals"),
+    )
+    def on_refresh(key, _n):
+        r = refresh(service, key)
+        return (r["route"], r["markers"], r["status"], r["cards"], r["graph"], r["detail"], r["stations"], r["poll_disabled"],
+                BADGE_HIDDEN if r["poll_disabled"] else BADGE_SHOWN)
+
+    @app.callback(Output("map", "bounds"), Input("trip-key", "data"), prevent_initial_call=True)
+    def on_bounds(key):
+        return map_bounds(service, key)
