@@ -63,7 +63,7 @@ def test_layout_structure():
     ids = [n.id for n in nodes if getattr(n, "id", None)]
     assert len(ids) == len(set(ids))
     for needed in ("map", "sidebar", "side-tabs", "origin", "destination", "soc-slider", "min-slider", "use-overpass",
-                   "max-detour", "battery-kwh", "compute-spinner", "refine-badge", "compute-btn", "charge-graph", "trip-key", "poll", "url", "open-sidebar",
+                   "max-detour", "battery-kwh", "chargers", "compute-spinner", "refine-badge", "compute-btn", "charge-graph", "trip-key", "poll", "url", "open-sidebar",
                    "close-sidebar", "resize-sink"):
         assert needed in ids, needed
     rows = [n for n in nodes if type(n).__name__ == "Row"]
@@ -96,24 +96,26 @@ def test_app_serves_layout_and_registers_callbacks():
 def make_service(plan=None, **kw):
     jobs = []
     report = make_report(100)
-    svc = TripService(MemoryStore(), runner=jobs.append, run_trip=lambda *a, **k: report, plan=plan or (lambda r, d, tariffs=None: None), **kw)
+    svc = TripService(MemoryStore(), runner=jobs.append, run_trip=lambda *a, **k: report, plan=plan or (lambda r, d, tariffs=None, **_kw: None), **kw)
     return svc, jobs, report
 
 
 def test_compute_from_button_returns_key_and_query():
     svc, jobs, _ = make_service()
-    key, err, query, filled = callbacks.compute(svc, "compute-btn", VALUES, "", None)
-    assert key and err == "" and query.startswith("?origin=Paris") and filled is None and len(jobs) == 1  # max detour 5: station search as a background task
+    key, err, query, filled, invalid = callbacks.compute(svc, "compute-btn", VALUES, "", None)
+    assert key and err == "" and query.startswith("?origin=Paris") and filled is None and invalid == set() and len(jobs) == 1  # max detour 5: station search as a background task
     assert svc.get(key) is not None
 
 
 def test_compute_reports_errors_without_changing_the_result():
     svc, *_ = make_service()
-    key, err, query, _ = callbacks.compute(svc, "compute-btn", {**VALUES, "origin": ""}, "", "old")
-    assert key is no_update and query is no_update and "départ" in err.children
+    key, err, query, _, invalid = callbacks.compute(svc, "compute-btn", {**VALUES, "origin": ""}, "", "old")
+    assert key is no_update and query is no_update and err == "" and invalid == {"origin"}  # red field, no alert
+    *_, invalid = callbacks.compute(svc, "compute-btn", {**VALUES, "origin": "", "destination": " ", "temp_c": "x"}, "", None)
+    assert invalid == {"origin", "destination"}
     svc.run_trip = lambda *a, **k: (_ for _ in ()).throw(RoutingError("OSRM HS"))
-    key, err, *_ = callbacks.compute(svc, "compute-btn", VALUES, "", None)
-    assert key is no_update and "OSRM HS" in err.children
+    key, err, *_, invalid = callbacks.compute(svc, "compute-btn", VALUES, "", None)
+    assert key is no_update and "OSRM HS" in err.children and invalid == set()  # service error: alert, no red field
 
 
 def test_compute_from_url_prefills_form_and_skips_duplicate():
@@ -121,9 +123,9 @@ def test_compute_from_url_prefills_form_and_skips_duplicate():
     req = request_from_values({**VALUES, "temp_c": 3})
     search = to_query(req)
     for trigger in ("url", None):  # URL change or page load
-        key, err, query, filled = callbacks.compute(svc, trigger, {}, search, None)
+        key, err, query, filled, _ = callbacks.compute(svc, trigger, {}, search, None)
         assert key == req.key() and query is no_update and filled["temp_c"] == 3 and filled["origin"] == "Paris"
-    key2, _, query2, _ = callbacks.compute(svc, "url", {}, search, req.key())  # URL set by the button: nothing to redo
+    key2, _, query2, *_ = callbacks.compute(svc, "url", {}, search, req.key())  # URL set by the button: nothing to redo
     assert key2 is no_update and query2 is no_update
     assert callbacks.compute(svc, None, {}, "", None)[0] is no_update  # no trip in the URL
 
@@ -140,9 +142,9 @@ def test_refresh_without_result_or_with_expired_result():
 def test_refresh_renders_every_panel_and_keeps_polling_while_busy():
     stations = OverpassStationSource(FakeClient([element(60, id=1, name="Borne A", operator="Ionity",
                                                          **{"socket:type2_combo:output": "150 kW"})]))
-    svc, jobs, report = make_service(plan=lambda r, d, tariffs=None: plan_charging(
+    svc, jobs, report = make_service(plan=lambda r, d, tariffs=None, **_kw: plan_charging(
         r, d, tariffs=tariffs, stations=stations, detour_fn=lambda *a: (1.0, 2.0), sleep=lambda s: None))
-    key, _, _, _ = callbacks.compute(svc, "compute-btn", {**VALUES, "max_detour_km": 5}, "", None)
+    key, *_ = callbacks.compute(svc, "compute-btn", {**VALUES, "max_detour_km": 5}, "", None)
     busy = callbacks.refresh(svc, key)
     assert busy["poll_disabled"] is False and busy["markers"] == []
     assert "en cours" in str(busy["stations"].children) and any("Recherche des bornes" in str(b) for b in busy["status"])
@@ -180,3 +182,22 @@ def test_station_markers_differ_from_stop_markers_and_keep_score_color():
     stop, station = components.marker_layers(data)
     assert type(stop).__name__ == "CircleMarker" and type(station).__name__ == "DivMarker"
     assert "#2ca02c" in station.iconOptions["html"] and "⚡" in station.iconOptions["html"]
+
+
+def test_chargers_roundtrip_through_form_request_and_url():
+    values = {**VALUES, "chargers": ["ac11", "dc100"]}
+    req = request_from_values(values)
+    assert req.chargers == ("dc100", "ac11")
+    assert from_query(to_query(req))["chargers"] == ["dc100", "ac11"]
+    assert request_from_values({**VALUES, "chargers": list(DEFAULTS["chargers"])}).chargers == tuple(DEFAULTS["chargers"])
+    with pytest.raises(ValueError, match="Niveau de recharge inconnu"):
+        request_from_values({**VALUES, "chargers": ["ac99"]})
+    with pytest.raises(ValueError, match="au moins un niveau"):
+        request_from_values({**VALUES, "chargers": [], "max_detour_km": 5})
+    assert request_from_values({**VALUES, "chargers": [], "max_detour_km": 0}).chargers == ()  # irrelevant without station search
+
+
+def test_energy_tab_has_a_multi_dropdown_with_all_levels():
+    root = layout.build_layout("https://t/{z}/{x}/{y}.png", "osm")
+    drop = next(n for n in walk(root) if getattr(n, "id", None) == "chargers")
+    assert drop.multi is True and len(drop.options) == 6 and drop.value == DEFAULTS["chargers"]

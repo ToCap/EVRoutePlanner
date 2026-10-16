@@ -60,7 +60,7 @@ def test_charging_job_runs_after_refinement_with_the_refined_report():
     seen = {}
     refined = make_report(100)
 
-    def plan(report, detour, tariffs=None):
+    def plan(report, detour, tariffs=None, **_kw):
         seen.update(report=report, detour=detour, tariffs=tariffs)
         return ChargingPlan([], 0, 0, detour, "optionnelle")
 
@@ -75,7 +75,7 @@ def test_charging_job_runs_after_refinement_with_the_refined_report():
 def test_charging_only_request_skips_refinement():
     called = []
     svc, jobs, _, _ = service(refine=lambda r: called.append(1) or r,
-                              plan=lambda r, d, tariffs=None: ChargingPlan([], 0, 0, d, "optionnelle"))
+                              plan=lambda r, d, tariffs=None, **_kw: ChargingPlan([], 0, 0, d, "optionnelle"))
     key, entry = svc.start(TripRequest("A", "B", 20, 52, 90, 10, max_detour_km=2))
     assert entry.state == REFINING
     jobs[0]()
@@ -86,7 +86,7 @@ def test_failures_are_published_and_partial_results_kept():
     def boom_refine(r):
         raise RuntimeError("HTTP 429")
 
-    def boom_plan(r, d, tariffs=None):
+    def boom_plan(r, d, tariffs=None, **_kw):
         raise RuntimeError("Overpass en panne")
 
     svc, jobs, _, report = service(refine=boom_refine, plan=boom_plan)
@@ -107,3 +107,26 @@ def test_memory_store_lock():
     store = MemoryStore()
     assert store.acquire("k") and not store.acquire("k") and store.get("k") is None
     assert isinstance(make_report(10), TripReport)
+
+
+def test_request_chargers_are_validated_and_canonical():
+    a = TripRequest("A", "B", 20, 52, 90, 10, chargers=("ac11", "dc100"))
+    b = TripRequest("A", "B", 20, 52, 90, 10, chargers=("dc100", "ac11"))
+    assert a.chargers == ("dc100", "ac11") and a.key() == b.key()  # same set, same key
+    assert a.key() != REQ.key()
+    with pytest.raises(ValueError, match="inconnu"):
+        TripRequest("A", "B", 20, 52, 90, 10, chargers=("ac99",))
+
+
+def test_chargers_reach_the_station_plan():
+    seen = []
+
+    def plan(report, detour, tariffs=None, **kw):
+        seen.append(kw)
+        return ChargingPlan([], 0, 0, detour, "optionnelle")
+
+    svc, jobs, _, _ = service(plan=plan)
+    key, entry = svc.start(TripRequest("A", "B", 20, 52, 90, 10, max_detour_km=3, chargers=("ac11",)))
+    assert entry.chargers == ("ac11",)
+    jobs[0]()
+    assert seen == [{"chargers": ("ac11",)}]

@@ -308,7 +308,7 @@ def with_charging(monkeypatch):
     monkeypatch.setattr(views.service, "runner", jobs.append)
     real = charging_mod.plan_charging
 
-    def fake_plan(report, detour, tariffs=None):
+    def fake_plan(report, detour, tariffs=None, **_kw):
         return real(report, detour, tariffs=tariffs, stations=OverpassStationSource(_StationClient(_elements())),
                     detour_fn=lambda r, st, km, cfg, cum: (1.0, 2.0), sleep=lambda s: None)
 
@@ -373,7 +373,7 @@ def test_missing_or_broken_tariff_file_is_ignored(client, with_charging, setting
 
 
 def test_charging_failure_is_reported_and_trip_stays_visible(client, with_charging, monkeypatch):
-    def boom(report, detour, tariffs=None):
+    def boom(report, detour, tariffs=None, **_kw):
         raise RuntimeError("Overpass en panne")
 
     monkeypatch.setattr(views.service, "plan", boom)
@@ -389,7 +389,7 @@ def test_charging_failure_is_reported_and_trip_stays_visible(client, with_chargi
 def test_charging_warning_from_the_plan_is_displayed(client, with_charging, monkeypatch):
     monkeypatch.setattr(
         views.service, "plan",
-        lambda report, detour, tariffs=None: charging_dom.ChargingPlan([], 0, 0, detour, "optionnelle", ["Recherche des bornes impossible : HTTP 429"]),
+        lambda report, detour, tariffs=None, **_kw: charging_dom.ChargingPlan([], 0, 0, detour, "optionnelle", ["Recherche des bornes impossible : HTTP 429"]),
     )
     client.get("/", CHARGING)
     with_charging[0]()
@@ -400,7 +400,7 @@ def test_charging_warning_from_the_plan_is_displayed(client, with_charging, monk
 def test_refinement_and_charging_run_in_one_job(client, two_phase, monkeypatch):
     seen = {}
 
-    def fake_plan(report, detour, tariffs=None):
+    def fake_plan(report, detour, tariffs=None, **_kw):
         seen["precision"] = report.precision  # the search uses the refined result
         return charging_dom.ChargingPlan([], 0, 0, detour, "optionnelle")
 

@@ -443,7 +443,7 @@ def test_cli_max_detour(monkeypatch, capsys, tmp_path):
     monkeypatch.setattr(cli, "run_trip", lambda *a, **k: report)
     calls = {}
 
-    def fake_plan(rep, detour, tariffs=None):
+    def fake_plan(rep, detour, tariffs=None, **_kw):
         calls.update(detour=detour, tariffs=tariffs)
         return ChargingPlan([], 0, 0, detour, "nécessaire")
 
@@ -461,3 +461,47 @@ def test_cli_max_detour(monkeypatch, capsys, tmp_path):
 def test_cli_rejects_bad_detour(capsys):
     with pytest.raises(SystemExit):
         cli.main(["A", "B", "--temp", "8", "--battery", "52", "--soc", "90", "--max-detour", "0"])
+
+
+# --- vehicle charging levels ---------------------------------------------------------
+
+def test_station_compatibility_follows_selected_levels():
+    from ev_trip.domain.charging import station_compatible
+
+    fast = station(charge_type="rapide", power_kw=150)
+    normal = station(charge_type="normale", power_kw=11)
+    unknown = station(charge_type=None, power_kw=None)
+    assert all(station_compatible(s, ("dc100", "ac11")) for s in (fast, normal, unknown))
+    assert not station_compatible(fast, ("ac11", "ac22"))  # no DC level selected
+    assert not station_compatible(normal, ("dc100",))  # no AC level selected
+    assert station_compatible(unknown, ("ac11",)) and station_compatible(fast, ())  # unknown type / no selection: kept
+
+
+def test_apply_chargers_sets_the_highest_selected_power():
+    from ev_trip.domain.charging import apply_chargers
+
+    cfg = ChargingConfig()
+    new = apply_chargers(cfg, ("ac7_4", "ac3_7", "dc100"))
+    assert (new.vehicle_max_ac_kw, new.vehicle_max_dc_kw) == (7.4, 100.0)
+    assert (cfg.vehicle_max_ac_kw, cfg.vehicle_max_dc_kw) == (11.0, 100.0)  # original untouched
+    assert apply_chargers(cfg, ("ac22",)).vehicle_max_ac_kw == 22.0
+    assert apply_chargers(cfg, ("ac2_3",)).vehicle_max_dc_kw == cfg.vehicle_max_dc_kw  # no DC level: unchanged
+
+
+def test_plan_excludes_stations_and_caps_power_by_selected_levels():
+    report = make_report(300)
+    els = [element(150, id=1, **{"socket:type2_combo:output": "150 kW"}), element(200, id=2, **{"socket:type2:output": "22 kW"})]
+    detours = {"node/1": 1.0, "node/2": 1.0}
+    all_levels, _, _ = run_plan(report, els, detours)
+    assert {s.station.id for s in all_levels.suggestions} == {"node/1", "node/2"} and not all_levels.warnings
+    ac_only, _, _ = run_plan(report, els, detours, chargers=("ac11",))
+    assert [s.station.id for s in ac_only.suggestions] == ["node/2"]
+    assert plan_warning(ac_only) and ac_only.found == 2
+    slow, _, _ = run_plan(report, els, detours, chargers=("ac2_3", "dc100"))
+    slow_ac = next(s for s in slow.suggestions if s.station.id == "node/2")
+    fast_ac = next(s for s in all_levels.suggestions if s.station.id == "node/2")
+    assert slow_ac.charge_min > fast_ac.charge_min  # 22 kW station, vehicle limited to 2.3 kW (11 kW otherwise)
+
+
+def plan_warning(plan):
+    return any("écartée" in w for w in plan.warnings)
