@@ -75,7 +75,7 @@ def tab_energy():
     ])
 
 
-SIDEBAR_WIDTH = "min(420px, 90vw)"
+SIDEBAR_WIDTH = "min(400px, 90vw)"
 
 
 def tab_configuration():

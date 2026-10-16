@@ -129,7 +129,7 @@ def detail_table(data: dict) -> html.Div:
                 cells += [html.Td(f"{c['cons']:.1f}"), html.Td(f"{c['kwh']:.2f}"),
                           html.Td(f"{c['soc']:.1f}" + (" ⛔" if c["stop"] else ""), **stop)]
         body.append(html.Tr(cells))
-    return html.Div(dbc.Table([html.Thead([head1, head2]), html.Tbody(body)], size="sm", striped=True, className="text-end mb-0"))
+    return html.Div(dbc.Table([html.Thead([head1, head2]), html.Tbody(body)], size="sm", striped=True, responsive=True, className="text-end mb-0"))
 
 
 def stations_table(charging: dict | None, requested: bool) -> html.Div:
