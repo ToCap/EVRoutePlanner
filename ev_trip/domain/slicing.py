@@ -1,17 +1,17 @@
-"""Découpage du trajet en tranches de 10 km max, coupées au changement de type de route."""
+"""Trip split into slices of at most 10 km, cut at each road-type change."""
 from __future__ import annotations
 
-from .models import MicroSegment, Slice
+from ev_trip.domain.models import MicroSegment, Slice
 
 _EPS = 1e-9
 
 
 def smooth_types(segments: list[MicroSegment], min_run_km: float) -> list[MicroSegment]:
-    """Absorbe les séquences plus courtes que `min_run_km` entourées du même type de route."""
+    """Absorbs runs shorter than `min_run_km` surrounded by the same road type."""
     if min_run_km <= 0 or len(segments) < 3:
         return list(segments)
 
-    # Regroupement en séquences (type, début, fin).
+    # Grouping into runs (type, start, end).
     runs: list[list] = []
     for seg in segments:
         if runs and runs[-1][0] == seg.road_type:
@@ -33,7 +33,7 @@ def smooth_types(segments: list[MicroSegment], min_run_km: float) -> list[MicroS
 
 
 def build_slices(segments: list[MicroSegment], max_slice_km: float = 10.0) -> list[Slice]:
-    """Fusionne les segments consécutifs de même type en tranches d'au plus `max_slice_km`."""
+    """Merges consecutive same-type segments into slices of at most `max_slice_km`."""
     if max_slice_km <= 0:
         raise ValueError("La longueur maximale d'une tranche doit être > 0.")
 

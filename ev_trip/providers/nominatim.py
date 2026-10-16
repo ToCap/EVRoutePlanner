@@ -1,4 +1,4 @@
-"""Géocodage via Nominatim (OpenStreetMap)."""
+"""Geocoding via Nominatim (OpenStreetMap)."""
 from __future__ import annotations
 
 import os
@@ -6,8 +6,8 @@ import re
 
 import requests
 
-from .errors import GeocodingError
-from .models import Point
+from ev_trip.domain.errors import GeocodingError
+from ev_trip.domain.models import Point
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = os.environ.get("EV_TRIP_USER_AGENT", "ev-trip-simulator/0.1")
@@ -16,7 +16,7 @@ _COORDS = re.compile(r"^\s*(-?\d+(?:\.\d+)?)\s*[,;]\s*(-?\d+(?:\.\d+)?)\s*$")
 
 
 def geocode(query: str, session: requests.Session | None = None, timeout: float = 20.0) -> Point:
-    """Transforme « Saint-Lô » (ou « 48.85,2.35 ») en coordonnées."""
+    """Turns "Saint-Lô" (or "48.85,2.35") into coordinates."""
     m = _COORDS.match(query)
     if m:
         return Point(float(m.group(1)), float(m.group(2)))

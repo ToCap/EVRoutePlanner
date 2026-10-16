@@ -1,13 +1,9 @@
-"""Simulation de la charge restante tranche par tranche.
-
-La réserve (seuil minimum) n'est jamais entamée : dès qu'une tranche la ferait franchir, elle est
-tronquée au point exact où la réserve est atteinte et le trajet s'arrête là.
-"""
+"""Remaining-charge simulation, slice by slice; the reserve is never dipped into (the slice is truncated there)."""
 from __future__ import annotations
 
-from .config import DEFAULT_SCENARIO, SCENARIOS, ConsumptionConfig
-from .consumption import consumption_kwh_per_100km
-from .models import Alert, SimulationResult, Slice, SliceResult, VehicleParams
+from ev_trip.domain.config import DEFAULT_SCENARIO, SCENARIOS, ConsumptionConfig
+from ev_trip.domain.consumption import consumption_kwh_per_100km
+from ev_trip.domain.models import Alert, SimulationResult, Slice, SliceResult, VehicleParams
 
 _EPS = 1e-9
 
@@ -49,7 +45,7 @@ def simulate(
         after = remaining - energy
 
         if after < min_kwh - _EPS:
-            usable = max(remaining - min_kwh, 0.0)  # énergie disponible avant d'entamer la réserve
+            usable = max(remaining - min_kwh, 0.0)  # energy available before dipping into the reserve
             stop_km = sl.start_km
             if usable > _EPS and energy > 0:
                 stop_km = sl.start_km + sl.length_km * usable / energy
@@ -90,6 +86,6 @@ def simulate_all(
     temp_c: float,
     cfg: ConsumptionConfig | None = None,
 ) -> dict[str, SimulationResult]:
-    """Une simulation par scénario (optimiste, moyenne, pessimiste) sur les mêmes tranches."""
+    """One simulation per scenario (optimistic, mean, pessimistic) over the same slices."""
     cfg = cfg or ConsumptionConfig()
     return {name: simulate(slices, vehicle, temp_c, cfg, name) for name in SCENARIOS}

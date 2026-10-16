@@ -1,4 +1,4 @@
-"""Structures de données partagées par tous les modules."""
+"""Data structures shared by all modules."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -10,20 +10,32 @@ class Point:
     lon: float
 
 
+@dataclass(frozen=True)
+class RouteStep:
+    """OSRM step: route portion on a single road (name / ref), in km from the start."""
+
+    start_km: float
+    end_km: float
+    name: str = ""
+    ref: str = ""
+
+
 @dataclass
 class Route:
-    """Itinéraire brut renvoyé par le service de routage."""
+    """Raw route returned by the routing service."""
 
     coordinates: list[Point]
     distance_km: float
     duration_min: float
-    # Durée (s) de chaque segment entre deux coordonnées consécutives, si connue.
+    # Duration (s) of each segment between consecutive coordinates, if known.
     durations_s: list[float] | None = None
+    # Steps (road name/ref), if the routing service provides them.
+    steps: list[RouteStep] | None = None
 
 
 @dataclass(frozen=True)
 class MicroSegment:
-    """Petit tronçon (~500 m) d'un type de route donné."""
+    """Small section (~500 m) of a given road type."""
 
     start_km: float
     end_km: float
@@ -36,7 +48,7 @@ class MicroSegment:
 
 @dataclass(frozen=True)
 class Slice:
-    """Tranche de trajet (<= 10 km, un seul type de route)."""
+    """Trip slice (<= 10 km, a single road type)."""
 
     index: int
     start_km: float
@@ -82,13 +94,13 @@ class Alert:
 class SimulationResult:
     temp_c: float
     vehicle: VehicleParams
-    # Tranches réellement parcourues (la dernière est tronquée si la réserve est atteinte).
+    # Slices actually driven (the last is truncated if the reserve is reached).
     results: list[SliceResult]
-    total_km: float  # distance parcourue
-    trip_km: float  # distance du trajet prévu
+    total_km: float  # distance driven
+    trip_km: float  # planned trip distance
     total_kwh: float
     final_remaining_kwh: float
     final_soc_pct: float
-    completed: bool = True  # False si le trajet est interrompu à la réserve
+    completed: bool = True  # False if the trip is interrupted at the reserve
     alert: Alert | None = None
     scenario: str = "moyenne"

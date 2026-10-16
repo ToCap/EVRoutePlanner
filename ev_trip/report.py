@@ -1,13 +1,17 @@
-"""Mise en forme des résultats (console, CSV) : une colonne par scénario."""
+"""Result formatting (console, CSV): one column group per scenario."""
 from __future__ import annotations
 
 import csv
+from typing import TYPE_CHECKING
 from collections import defaultdict
 from pathlib import Path
 
-from .config import ROAD_TYPES, SCENARIOS
-from .models import SimulationResult, SliceResult
-from .trip import TripReport
+from ev_trip.domain.config import ROAD_TYPES, SCENARIOS
+from ev_trip.domain.models import SimulationResult, SliceResult
+from ev_trip.domain.trip_report import TripReport
+
+if TYPE_CHECKING:
+    from ev_trip.domain.charging import ChargingPlan
 
 LABELS = {"optimiste": "Optimiste", "moyenne": "Moyenne", "pessimiste": "Pessimiste"}
 _SHORT = {"optimiste": "Opt.", "moyenne": "Moy.", "pessimiste": "Pess."}
@@ -32,7 +36,7 @@ def _summary(sim: SimulationResult) -> str:
 
 
 def _grid(report: TripReport) -> tuple[tuple[str, ...], list[tuple]]:
-    """En-têtes et lignes (une par tranche prévue) avec 3 colonnes par scénario."""
+    """Headers and rows (one per planned slice) with 3 columns per scenario."""
     by_index = {name: results_by_index(sim) for name, sim in report.simulations.items()}
     header = ("#", "début km", "fin km", "type") + tuple(
         f"{_SHORT[s]} {col}" for s in SCENARIOS for col in ("kWh/100", "kWh", "charge %")
@@ -42,7 +46,7 @@ def _grid(report: TripReport) -> tuple[tuple[str, ...], list[tuple]]:
         row: list = [sl.index, round(sl.start_km, 2), round(sl.end_km, 2), sl.road_type]
         for name in SCENARIOS:
             r = by_index[name].get(sl.index)
-            if r is None:  # tranche jamais atteinte dans ce scénario
+            if r is None:  # slice never reached in this scenario
                 row += ["-", "-", "-"]
             else:
                 row += [round(r.consumption_kwh_per_100km, 2), round(r.energy_kwh, 3), round(r.soc_pct, 1)]
@@ -85,20 +89,22 @@ def format_report(report: TripReport) -> str:
         alert = report.simulations[name].alert
         if alert:
             lines.append(f"ALERTE ({LABELS[name].lower()}) : {alert.message}")
+    if report.precision == "coarse":
+        lines.append("Précision : première estimation (affinage non effectué).")
     for w in report.warnings:
         lines.append(f"Attention : {w}")
     return "\n".join(lines)
 
 
 def write_csv(report: TripReport, path: str | Path) -> None:
-    """CSV prêt pour Excel en français (séparateur « ; », UTF-8 avec BOM)."""
+    """Excel-ready CSV for French locale (";" separator, UTF-8 with BOM)."""
     header, rows = _grid(report)
     with open(path, "w", newline="", encoding="utf-8-sig") as fh:
         writer = csv.writer(fh, delimiter=";")
         writer.writerow(header)
         writer.writerows(rows)
 
-        # Lignes de synthèse : valeur placée dans la colonne « charge % » de chaque scénario.
+        # Summary rows: value placed in each scenario's "charge %" column.
         def summary_row(label: str, values: list) -> tuple:
             out: list = ["", "", "", label]
             for value in values:
@@ -111,3 +117,37 @@ def write_csv(report: TripReport, path: str | Path) -> None:
         writer.writerow(summary_row("Énergie (kWh)", [round(s.total_kwh, 2) for s in sims]))
         writer.writerow(summary_row("Charge finale %", [round(s.final_soc_pct, 1) for s in sims]))
         writer.writerow(summary_row("Statut", ["arrivée" if s.completed else "interrompu" for s in sims]))
+
+
+_PRICE_SRC = {"osm": "OSM", "gratuit": "gratuit", "tarif": "tarif", "inconnu": "?"}
+
+
+def format_charging(plan: "ChargingPlan") -> str:
+    """Console table of suggested stations (ranked by score)."""
+    lines = [
+        "",
+        f"Bornes de recharge (détour max {plan.max_detour_km:g} km) : "
+        f"{plan.found} trouvée(s), {len(plan.suggestions)} retenue(s). Recharge {plan.need_level}.",
+    ]
+    if plan.suggestions:
+        header = ("#", "note", "borne", "type", "kW", "km", "détour km", "+kWh", "arrivée %", "recharge min", "€/kWh", "notes")
+        rows = []
+        for i, s in enumerate(plan.suggestions, 1):
+            st = s.station
+            price = "-" if s.price_eur_kwh is None else f"{s.price_eur_kwh:.2f} ({_PRICE_SRC[s.price_source]})"
+            rows.append((
+                i, f"{s.score:.0f}", st.label[:28], st.charge_type or "?",
+                "-" if st.power_kw is None else f"{st.power_kw:g}", f"{s.route_km:.1f}",
+                f"{s.detour_km:.1f}" + ("~" if s.detour_estimated else ""),
+                f"{s.detour_kwh:.2f}",
+                "-" if s.soc_arrival_pct is None else f"{s.soc_arrival_pct:.0f}",
+                "-" if s.charge_min is None else f"{s.charge_min:.0f}", price, "; ".join(s.notes),
+            ))
+        widths = [max(len(str(x)) for x in col) for col in zip(header, *rows)]
+        fmt = "  ".join(f"{{:>{w}}}" for w in widths)
+        lines.append(fmt.format(*header))
+        lines.extend(fmt.format(*r) for r in rows)
+        lines.append("Note /100 = détour, besoin de recharge, durée de charge, prix (pondérations dans config « charging »).")
+    for w in plan.warnings:
+        lines.append(f"Attention : {w}")
+    return "\n".join(lines)

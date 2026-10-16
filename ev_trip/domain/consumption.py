@@ -1,7 +1,7 @@
-"""Modèle de consommation : type de route x scénario x température."""
+"""Consumption model: road type x scenario x temperature."""
 from __future__ import annotations
 
-from .config import DEFAULT_SCENARIO, ConsumptionConfig
+from ev_trip.domain.config import DEFAULT_SCENARIO, ConsumptionConfig
 
 
 def consumption_kwh_per_100km(
