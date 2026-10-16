@@ -28,6 +28,7 @@ CLI:
 | `--max-slice-km` | maximum slice length, default 10 |
 | `--max-detour KM` | search and score charging stations within KM of detour |
 | `--tariffs` | JSON of per-operator tariffs (see `tariffs.json`) |
+| `--chargers IDS` | charging levels the vehicle accepts, comma-separated (default: all, e.g. `dc100,ac11`); unselected AC/DC stations are dropped |
 | `--no-refine` / `--no-overpass` | fast first estimate only / road type from OSRM speed |
 
 Web interfaces (same `TripService`, run a single process for Dash):
@@ -60,7 +61,7 @@ Dependencies only go downward, enforced by `tests/test_architecture.py`.
 
 ## Tests
 
-    pytest        # 215 offline tests
+    pytest        # 222 offline tests
 
 ## Docs
 
