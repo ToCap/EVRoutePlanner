@@ -5,6 +5,7 @@ import dash_bootstrap_components as dbc
 import dash_leaflet as dl
 from dash import dcc, html
 
+from ev_trip.domain.config import CHARGER_LEVELS
 from interfaces.dash_ui.components import charge_figure
 from interfaces.dash_ui.params import DEFAULTS
 
@@ -74,14 +75,30 @@ def tab_stations():
     ])
 
 
+def charger_options():
+    """Dropdown options: level label + outlet description (the value is the level id)."""
+    return [{"label": html.Span([level.label, html.Small(f" · {level.description}", className="text-muted")]), "value": level.id,
+             "search": f"{level.label} {level.description}"} for level in CHARGER_LEVELS]
+
+
 def tab_energy():
     return html.Div([
-        html.H6("Énergie du véhicule", className="mt-3"),
-        _group("Capacité batterie", _number("battery-kwh", DEFAULTS["battery_kwh"], 1, 300), "kWh"),
-        html.P("Bientôt : consommation selon le type de route, la température, le mode éco, le chauffage et la climatisation.", className="small text-muted"),
-        dbc.Switch(id="eco-mode", label="Mode éco", value=False, disabled=True),
-        _group("Chauffage", dbc.Select(id="heating", options=[{"label": "Arrêt", "value": "off"}], value="off", disabled=True)),
-        _group("Climatisation", dbc.Select(id="aircon", options=[{"label": "Arrêt", "value": "off"}], value="off", disabled=True)),
+        _section("Batterie", _group("Capacité batterie", _number("battery-kwh", DEFAULTS["battery_kwh"], 1, 300), "kWh")),
+        _section(
+            "Recharge",
+            html.Label("Niveaux de recharge acceptés", htmlFor="chargers", className="form-label"),
+            dcc.Dropdown(id="chargers", options=charger_options(), value=DEFAULTS["chargers"], multi=True, clearable=False,
+                         placeholder="Sélectionner un ou plusieurs niveaux", className="mb-2"),
+            html.P("Le niveau le plus élevé coché fixe la puissance maximale acceptée. Les bornes AC ou DC non cochées sont écartées.",
+                   className="small text-muted"),
+        ),
+        _section(
+            "Consommation",
+            html.P("Bientôt : consommation selon le type de route, la température, le mode éco, le chauffage et la climatisation.", className="small text-muted"),
+            dbc.Switch(id="eco-mode", label="Mode éco", value=False, disabled=True),
+            _group("Chauffage", dbc.Select(id="heating", options=[{"label": "Arrêt", "value": "off"}], value="off", disabled=True)),
+            _group("Climatisation", dbc.Select(id="aircon", options=[{"label": "Arrêt", "value": "off"}], value="off", disabled=True)),
+        ),
     ])
 
 

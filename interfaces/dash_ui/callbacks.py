@@ -9,34 +9,37 @@ import dash_bootstrap_components as dbc
 
 from interfaces.dash_ui import components as ui
 from interfaces.dash_ui.layout import BADGE_HIDDEN, BADGE_SHOWN, SPINNER_HIDDEN, SPINNER_SHOWN
-from interfaces.dash_ui.params import from_query, request_from_values, to_query
+from interfaces.dash_ui.params import FieldError, from_query, request_from_values, to_query
 from ev_trip.application.jobs import REFINING, TripService
 from ev_trip.domain.errors import EVTripError
 from ev_trip.presentation import build_charging_data, build_view_data
 
 log = logging.getLogger(__name__)
-FIELD_IDS = ("origin", "destination", "temp-c", "battery-kwh", "soc-slider", "min-slider", "max-detour", "use-overpass")
-FIELD_KEYS = ("origin", "destination", "temp_c", "battery_kwh", "start_soc", "min_soc", "max_detour_km", "use_overpass")
+FIELD_IDS = ("origin", "destination", "temp-c", "battery-kwh", "soc-slider", "min-slider", "max-detour", "use-overpass", "chargers")
+FIELD_KEYS = ("origin", "destination", "temp_c", "battery_kwh", "start_soc", "min_soc", "max_detour_km", "use_overpass", "chargers")
+INVALIDABLE = {"origin": "origin", "destination": "destination", "temp_c": "temp-c", "battery_kwh": "battery-kwh", "max_detour_km": "max-detour"}
 
 
 def compute(service: TripService, trigger: str | None, values: dict, search: str | None, current_key: str | None):
-    """Starts a trip; returns (key, error message, query string, values to fill back into the form)."""
+    """Starts a trip; returns (key, error message, query string, values to fill back, invalid field keys or None)."""
     from_url = trigger != "compute-btn"  # page load or URL change
     if from_url:
         values = from_query(search)
         if values is None:
-            return no_update, no_update, no_update, None
+            return no_update, no_update, no_update, None, None
     try:
         request = request_from_values(values)
         key, _ = service.start(request)
+    except FieldError as exc:  # red fields, no alert
+        return no_update, "", no_update, None, set(exc.fields)
     except ValueError as exc:
-        return no_update, dbc.Alert(str(exc), color="danger", className="py-1 mb-0"), no_update, None
+        return no_update, dbc.Alert(str(exc), color="danger", className="py-1 mb-0"), no_update, None, set()
     except (EVTripError, requests.RequestException) as exc:
-        return no_update, dbc.Alert(str(exc), color="danger", className="py-1 mb-0"), no_update, None
+        return no_update, dbc.Alert(str(exc), color="danger", className="py-1 mb-0"), no_update, None, set()
     query = to_query(request)
     if from_url and key == current_key:
-        return no_update, "", no_update, values
-    return key, "", (no_update if from_url else query), (values if from_url else None)
+        return no_update, "", no_update, values, set()
+    return key, "", (no_update if from_url else query), (values if from_url else None), set()
 
 
 def refresh(service: TripService, key: str | None):
@@ -82,14 +85,16 @@ def register(app, service: TripService) -> None:
         Output("resize-sink", "data"), Input("sidebar", "is_open"),
     )
 
-    outputs = [Output("trip-key", "data"), Output("form-error", "children"), Output("url", "search"), *[Output(i, "value") for i in FIELD_IDS]]
+    outputs = [Output("trip-key", "data"), Output("form-error", "children"), Output("url", "search"),
+               *[Output(i, "value") for i in FIELD_IDS], *[Output(i, "invalid") for i in INVALIDABLE.values()]]
     states = [State("trip-key", "data"), *[State(i, "value") for i in FIELD_IDS]]
 
     def handle(trigger, search, current_key, field_values):
         values = dict(zip(FIELD_KEYS, field_values))
-        key, error, query, filled = compute(service, trigger, values, search, current_key)
+        key, error, query, filled, invalid = compute(service, trigger, values, search, current_key)
         reported = [filled[k] for k in FIELD_KEYS] if filled else [no_update] * len(FIELD_KEYS)
-        return key, error, query, *reported
+        flags = [no_update] * len(INVALIDABLE) if invalid is None else [k in invalid for k in INVALIDABLE]
+        return key, error, query, *reported, *flags
 
     # button: busy indicators (spinner, disabled button) only while a click is being processed
     @app.callback(
@@ -99,6 +104,9 @@ def register(app, service: TripService) -> None:
     )
     def on_compute(_clicks, search, current_key, *field_values):
         return handle("compute-btn", search, current_key, field_values)
+
+    for field in INVALIDABLE.values():  # editing a field clears its red outline
+        app.callback(Output(field, "invalid", allow_duplicate=True), Input(field, "value"), prevent_initial_call=True)(lambda _v: False)
 
     # page load or URL change (shared link): same outputs, no busy indicators
     @app.callback(
