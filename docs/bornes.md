@@ -25,7 +25,7 @@ Weighted mean of four criteria (weights in `ChargingConfig`, only the ratio matt
 
 **Need level** (whole trip): "nécessaire" if the mean scenario fails, "prudent" if the pessimistic one fails or ends within 5 % of the reserve, otherwise "optionnelle" (need sub-score fixed at 10). Otherwise the need score is highest when the charge on arrival is within 25 % above the reserve and decreases to a floor of 30.
 
-**Energy to add:** the missing energy to finish with a 5 % margin, capped at 80 % of the battery; if nothing is missing, a nominal 20 % top-up.
+**Energy to add:** the missing energy to finish with a 5 % margin, capped at 80 % of the battery (or at the end `y` of the timed charge profile, below); if nothing is missing, a nominal 20 % top-up (never above that cap).
 
 ## Price priority
 
@@ -42,6 +42,16 @@ The vehicle accepts a subset of `dc100` (100 kW DC), `ac22`, `ac11`, `ac7_4`, `a
 - A **fast** station (power >= 50 kW, or CCS/CHAdeMO/Supercharger sockets) needs a DC level; a **normal** one needs an AC level. Unknown type: kept.
 - Charge time uses `min(station power, vehicle limit)` where the limit is the highest selected AC or DC level, and a charging efficiency of 0.85. Without data, stations are assumed 50 kW (fast) or 11 kW (normal).
 - Interfaces: Dash dropdown in the **Énergie** tab, `--chargers dc100,ac11` in the CLI.
+
+## Timed charge profile (optional)
+
+The user can time a charge from `x` % to `y` % (default 15 % -> 80 %) for each selected level (Dash, **Énergie** tab, Recharge). The battery-side power of a level is `battery_kWh x (y - x) / 100 / hours`.
+
+- **Station -> level:** the highest timed level whose power does not exceed the station's (assumed 50 kW fast / 11 kW normal when unknown), among levels of the same current (DC for a fast station, AC for a normal one; unknown type: any). No such level: the model above applies.
+- **Charge time:** `energy to add / effective power`, without the 0.85 efficiency (the timing already includes it). Without any timing, the model above is unchanged.
+- **Cap (`y`):** the energy added never takes the battery above `y`; it replaces the fixed 80 % cap, and the nominal 20 % top-up never exceeds it. If the trip cannot be finished within the cap, the station gets the note « recharge limitée à y % ».
+- **Scope:** used only when at least one duration is filled; the durations of unselected levels are ignored.
+- **Limit:** a charge starting below `x` or ending above `y` is extrapolated linearly outside the measured window.
 
 ## Configuration
 
