@@ -177,6 +177,16 @@ def apply_chargers(cfg: ChargingConfig, chargers) -> ChargingConfig:
                    vehicle_max_dc_kw=max(dc) if dc else cfg.vehicle_max_dc_kw)
 
 
+def apply_charge_profile(cfg: ChargingConfig, battery_kwh: float, window: tuple[float, float],
+                         minutes: dict[str, float], chargers=None) -> ChargingConfig:
+    """Config capped at the window end, with the battery-side kW of each selected level the user timed (minutes over the window)."""
+    low, high = window
+    selected = {lv.id for lv in _levels(chargers)} if chargers else {lv.id for lv in CHARGER_LEVELS}
+    kw = {lv.id: battery_kwh * (high - low) / 100.0 / (minutes[lv.id] / 60.0)
+          for lv in CHARGER_LEVELS if lv.id in selected and minutes.get(lv.id)}
+    return replace(cfg, target_max_soc_pct=high, charge_window_pct=(low, high), level_kw=kw) if kw else cfg
+
+
 # --------------------------------------------------------------------------- tariffs
 
 
@@ -339,11 +349,26 @@ class StationSuggestion:
     notes: list[str] = field(default_factory=list)
 
 
+def _effective_kw(station: Station, cfg: ChargingConfig) -> float | None:
+    """Timed battery-side power of the highest timed level not above the station power (same current type), else None."""
+    if not cfg.level_kw:
+        return None
+    fast = station.charge_type == "rapide"
+    station_kw = station.power_kw or (cfg.assumed_fast_kw if fast else cfg.assumed_ac_kw)
+    current = None if station.charge_type is None else ("DC" if fast else "AC")
+    fits = [lv for lv in CHARGER_LEVELS
+            if lv.id in cfg.level_kw and current in (None, lv.current) and lv.kw <= station_kw + _EPS]
+    return cfg.level_kw[max(fits, key=lambda lv: lv.kw).id] if fits else None
+
+
 def _charge_time_min(station: Station, add_kwh: float, cfg: ChargingConfig) -> float | None:
     if add_kwh <= _EPS:
         return 0.0
     if station.power_kw is None and station.charge_type is None:
         return None
+    timed = _effective_kw(station, cfg)
+    if timed is not None:  # user-timed profile: already battery-side, no efficiency factor
+        return add_kwh / timed * 60.0
     fast = station.charge_type == "rapide"
     kw = station.power_kw or (cfg.assumed_fast_kw if fast else cfg.assumed_ac_kw)
     cap = cfg.vehicle_max_dc_kw if fast else cfg.vehicle_max_ac_kw
@@ -401,6 +426,8 @@ def score_station(
         headroom = max(0.0, cap * cc.target_max_soc_pct / 100.0 - arr_kwh)
         if missing > _EPS:
             add_kwh = min(missing, headroom)
+            if cc.charge_window_pct is not None and missing > headroom + _EPS:
+                notes.append(f"recharge limitée à {cc.target_max_soc_pct:g} %")
         else:
             add_kwh = min(cap * cc.nominal_top_up_pct / 100.0, headroom)
 

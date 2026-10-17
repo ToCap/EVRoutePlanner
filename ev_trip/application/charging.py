@@ -5,7 +5,8 @@ import time
 from typing import Callable
 
 from ev_trip.domain.charging import (
-    ChargingPlan, Station, StationSuggestion, TariffTable, apply_chargers, detour_anchors_km, detour_from_via,
+    ChargingPlan, Station, StationSuggestion, TariffTable, apply_charge_profile, apply_chargers, detour_anchors_km,
+    detour_from_via,
     estimate_detour, need_level, score_station, station_compatible,
 )
 from ev_trip.domain.config import ChargingConfig
@@ -45,6 +46,8 @@ def plan_charging(
     detour_fn: Callable[..., tuple[float, float]] | None = None,
     sleep: Callable[[float], None] = time.sleep,
     chargers: tuple[str, ...] | None = None,
+    charge_window: tuple[float, float] | None = None,
+    charge_minutes: dict[str, float] | None = None,
 ) -> ChargingPlan:
     """Stations ranked by relevance score, with a detour <= `max_detour_km`."""
     if max_detour_km <= 0:
@@ -55,6 +58,10 @@ def plan_charging(
         stations = OverpassStationSource(cfg=report.config.charging)
     if chargers:  # the vehicle's accepted charging levels cap the charge power
         report = replace(report, config=replace(report.config, charging=apply_chargers(report.config.charging, chargers)))
+    if charge_window and charge_minutes:  # user-timed charge: effective power per level, recharge capped at the window end
+        timed = apply_charge_profile(
+            report.config.charging, report.simulation.vehicle.battery_kwh, charge_window, charge_minutes, chargers)
+        report = replace(report, config=replace(report.config, charging=timed))
     cc = report.config.charging
     route = report.route
     cum = cumulative_km(route.coordinates)

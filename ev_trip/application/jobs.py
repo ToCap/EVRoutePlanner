@@ -34,6 +34,9 @@ class TripRequest:
     use_overpass: bool = True
     max_detour_km: float = 0.0  # 0 = no station search
     chargers: tuple[str, ...] = DEFAULT_CHARGERS  # charging levels the vehicle accepts (ids of `CHARGER_LEVELS`)
+    charge_from_pct: float = 15.0  # timed charge window: start (%)
+    charge_to_pct: float = 80.0  # timed charge window: end (%), also the recharge cap when a duration is given
+    charge_minutes: tuple[tuple[str, float], ...] = ()  # (level id, minutes to go from -> to) of the selected levels
 
     def __post_init__(self) -> None:
         known = [level.id for level in CHARGER_LEVELS]
@@ -41,6 +44,16 @@ class TripRequest:
         if unknown:
             raise ValueError(f"Niveau de recharge inconnu : {', '.join(unknown)}.")
         object.__setattr__(self, "chargers", tuple(c for c in known if c in self.chargers))  # canonical order: same key
+        timed = dict(self.charge_minutes)
+        bad = [c for c in timed if c not in known]
+        if bad:
+            raise ValueError(f"Niveau de recharge inconnu : {', '.join(bad)}.")
+        if not 0 <= self.charge_from_pct < self.charge_to_pct <= 100:
+            raise ValueError("Niveau de charge : le minimum doit être inférieur au maximum (entre 0 et 100 %).")
+        if any(m <= 0 for m in timed.values()):
+            raise ValueError("Durée de recharge : la valeur doit être > 0.")
+        object.__setattr__(self, "charge_minutes",  # selected levels only, canonical order: same key
+                           tuple((c, float(timed[c])) for c in known if c in timed and c in self.chargers))
 
     def key(self) -> str:
         return hashlib.sha1(json.dumps(asdict(self), sort_keys=True).encode("utf-8")).hexdigest()
@@ -64,6 +77,8 @@ class TripEntry:
     max_detour_km: float = 0.0
     charging: ChargingPlan | None = None
     chargers: tuple[str, ...] = DEFAULT_CHARGERS
+    charge_window: tuple[float, float] = (15.0, 80.0)
+    charge_minutes: tuple[tuple[str, float], ...] = ()
 
 
 class TripStore(Protocol):
@@ -138,7 +153,10 @@ class TripService:
             use_overpass=request.use_overpass, refine=False,
         )
         busy = report.refinable or request.wants_charging
-        entry = TripEntry(report, REFINING if busy else DONE, None, False, request.max_detour_km, None, request.chargers)
+        entry = TripEntry(
+            report, REFINING if busy else DONE, None, False, request.max_detour_km, None, request.chargers,
+            (request.charge_from_pct, request.charge_to_pct), request.charge_minutes,
+        )
         self.store.set(key, entry)
         if busy and self.store.acquire(key):  # one task per trip
             self.runner(lambda: self.run_job(key))
@@ -159,8 +177,10 @@ class TripService:
             log.exception("Affinage du trajet impossible")
             errors.append(f"affinage : {exc}")
         if entry.max_detour_km > 0:
+            # the timed charge profile is passed only when set: other plans keep their usual call
+            timed = {"charge_window": entry.charge_window, "charge_minutes": dict(entry.charge_minutes)} if entry.charge_minutes else {}
             try:
-                charging = self.plan(report, entry.max_detour_km, tariffs=self.tariffs(), chargers=entry.chargers)
+                charging = self.plan(report, entry.max_detour_km, tariffs=self.tariffs(), chargers=entry.chargers, **timed)
             except Exception as exc:
                 log.exception("Recherche des bornes impossible")
                 errors.append(f"bornes : {exc}")
@@ -168,6 +188,6 @@ class TripService:
             key,
             TripEntry(
                 report, FAILED if errors else DONE, "; ".join(errors) or None, refined,
-                entry.max_detour_km, charging, entry.chargers,
+                entry.max_detour_km, charging, entry.chargers, entry.charge_window, entry.charge_minutes,
             ),
         )

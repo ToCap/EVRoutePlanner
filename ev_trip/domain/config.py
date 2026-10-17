@@ -72,6 +72,10 @@ class ChargingConfig:
     need_floor_score: float = 30.0
     pessimistic_unreachable_factor: float = 0.75
 
+    # Vehicle charge profile timed by the user (set per trip by `apply_charge_profile`, not a JSON setting)
+    charge_window_pct: tuple[float, float] | None = None  # (from %, to %) the timings refer to
+    level_kw: dict[str, float] = field(default_factory=dict)  # level id -> battery-side kW measured over the window
+
     # Price
     price_max_eur_kwh: float = 0.80  # price giving score 0
     neutral_score: float = 50.0  # score of an unknown criterion
@@ -99,6 +103,12 @@ class ChargingConfig:
         for name in ("need_floor_score", "neutral_score"):
             if not 0 <= getattr(self, name) <= 100:
                 raise ValueError(f"charging.{name} doit être dans [0 ; 100].")
+        if self.charge_window_pct is not None:
+            low, high = self.charge_window_pct
+            if not 0 <= low < high <= 100:
+                raise ValueError("charging.charge_window_pct doit vérifier 0 <= début < fin <= 100.")
+        if any(kw <= 0 for kw in self.level_kw.values()):
+            raise ValueError("charging.level_kw doit contenir des puissances > 0.")
 
     @classmethod
     def from_dict(cls, data: dict) -> "ChargingConfig":
