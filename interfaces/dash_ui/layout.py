@@ -7,7 +7,7 @@ from dash import dcc, html
 
 from ev_trip.domain.config import CHARGER_LEVELS
 from interfaces.dash_ui.components import charge_figure
-from interfaces.dash_ui.params import DEFAULTS
+from interfaces.dash_ui.params import DEFAULTS, charge_min_id
 
 POLL_MS = 3000
 FRANCE = {"center": [46.6, 2.5], "zoom": 6}
@@ -39,6 +39,15 @@ def _percent_slider(id_, label, value):
         html.Label(label, htmlFor=id_, className="form-label mb-5"),
         dcc.Slider(id=id_, min=0, max=100, step=1, value=value, marks={v: str(v) for v in (0, 25, 50, 75, 100)},
                    allow_direct_input=False, tooltip={"placement": "top", "always_visible": True, "template": "{value} %", "style": {"whiteSpace": "nowrap"}}),
+    ], className="mb-3")
+
+
+def _range_slider(id_, label, value):
+    """Two-handle percentage slider (values shown in the input boxes at its ends); the handles cannot cross."""
+    return html.Div([
+        html.Label(label, htmlFor=id_, className="form-label mb-2"),
+        dcc.RangeSlider(id=id_, min=0, max=100, step=1, value=value, marks={v: str(v) for v in (0, 25, 50, 75, 100)},
+                        allowCross=False, pushable=1),
     ], className="mb-3")
 
 
@@ -101,6 +110,12 @@ def tab_energy():
                              placeholder="Sélectionner un ou plusieurs niveaux", className="mb-2"),
                 html.P("Le niveau le plus élevé coché fixe la puissance maximale acceptée. Les bornes AC ou DC non cochées sont écartées.",
                        className="small text-muted"),
+                _range_slider("charge-window", "Niveau de charge", DEFAULTS["charge_window"]),
+                html.P("Durée du niveau bas au niveau haut, par chargeur.", className="small text-muted mb-2"),
+                *[_group(html.Span(level.label, title=level.description),
+                         _number(charge_min_id(level.id), None, 0, 1440, placeholder="facultatif",
+                                 disabled=level.id not in DEFAULTS["chargers"]), "min")
+                  for level in CHARGER_LEVELS],
             ),
             _accordion_item(
                 "Consommation", "consumption",

@@ -9,15 +9,24 @@ import dash_bootstrap_components as dbc
 
 from interfaces.dash_ui import components as ui
 from interfaces.dash_ui.layout import BADGE_HIDDEN, BADGE_SHOWN, SPINNER_HIDDEN, SPINNER_SHOWN
-from interfaces.dash_ui.params import FieldError, from_query, request_from_values, to_query
+from interfaces.dash_ui.params import FieldError, charge_min_id, charge_min_key, from_query, request_from_values, to_query
 from ev_trip.application.jobs import REFINING, TripService
+from ev_trip.domain.config import CHARGER_LEVELS
 from ev_trip.domain.errors import EVTripError
 from ev_trip.presentation import build_charging_data, build_view_data
 
 log = logging.getLogger(__name__)
-FIELD_IDS = ("origin", "destination", "temp-c", "battery-kwh", "soc-slider", "min-slider", "max-detour", "use-overpass", "chargers")
-FIELD_KEYS = ("origin", "destination", "temp_c", "battery_kwh", "start_soc", "min_soc", "max_detour_km", "use_overpass", "chargers")
-INVALIDABLE = {"origin": "origin", "destination": "destination", "temp_c": "temp-c", "battery_kwh": "battery-kwh", "max_detour_km": "max-detour"}
+FIELD_IDS = ("origin", "destination", "temp-c", "battery-kwh", "soc-slider", "min-slider", "max-detour", "use-overpass", "chargers",
+             "charge-window", *[charge_min_id(level.id) for level in CHARGER_LEVELS])
+FIELD_KEYS = ("origin", "destination", "temp_c", "battery_kwh", "start_soc", "min_soc", "max_detour_km", "use_overpass", "chargers",
+              "charge_window", *[charge_min_key(level.id) for level in CHARGER_LEVELS])
+INVALIDABLE = {"origin": "origin", "destination": "destination", "temp_c": "temp-c", "battery_kwh": "battery-kwh", "max_detour_km": "max-detour",
+               **{charge_min_key(level.id): charge_min_id(level.id) for level in CHARGER_LEVELS}}
+
+
+def charge_inputs_disabled(selected: list[str] | None) -> list[bool]:
+    """Disabled flag of each timed-duration input, in `CHARGER_LEVELS` order: greyed out when its level is not selected."""
+    return [level.id not in (selected or ()) for level in CHARGER_LEVELS]
 
 
 def compute(service: TripService, trigger: str | None, values: dict, search: str | None, current_key: str | None):
@@ -84,6 +93,10 @@ def register(app, service: TripService) -> None:
         }""",
         Output("resize-sink", "data"), Input("sidebar", "is_open"),
     )
+
+    @app.callback([Output(charge_min_id(level.id), "disabled") for level in CHARGER_LEVELS], Input("chargers", "value"))
+    def on_chargers(selected):  # a duration can only be entered for a selected level
+        return charge_inputs_disabled(selected)
 
     outputs = [Output("trip-key", "data"), Output("form-error", "children"), Output("url", "search"),
                *[Output(i, "value") for i in FIELD_IDS], *[Output(i, "invalid") for i in INVALIDABLE.values()]]

@@ -4,11 +4,25 @@ from __future__ import annotations
 from urllib.parse import parse_qs, urlencode
 
 from ev_trip.application.jobs import TripRequest
-from ev_trip.domain.config import DEFAULT_CHARGERS
+from ev_trip.domain.config import CHARGER_LEVELS, DEFAULT_CHARGERS
+
+MAX_CHARGE_MIN = 1440  # upper bound of a timed charge duration (minutes)
+
+
+def charge_min_key(level_id: str) -> str:
+    """Form key of the timed duration (minutes) of a charger level."""
+    return f"charge_min_{level_id}"
+
+
+def charge_min_id(level_id: str) -> str:
+    """Component id of the timed duration input of a charger level."""
+    return f"charge-min-{level_id}"
+
 
 DEFAULTS = {
     "origin": "", "destination": "", "temp_c": 15.0, "battery_kwh": 52.0,
     "start_soc": 90.0, "min_soc": 10.0, "max_detour_km": 5.0, "use_overpass": True, "chargers": list(DEFAULT_CHARGERS),
+    "charge_window": [15, 80], **{charge_min_key(level.id): None for level in CHARGER_LEVELS},
 }
 _RANGES = {  # field: (label, min, max, required)
     "temp_c": ("Température", -50, 60, True),
@@ -51,9 +65,26 @@ def request_from_values(values: dict) -> TripRequest:
     chargers = tuple(values.get("chargers") or ())
     if numbers["max_detour_km"] > 0 and not chargers:
         raise ValueError("Recharge : sélectionner au moins un niveau de recharge (onglet Énergie).")
+    try:
+        low, high = (float(v) for v in (values.get("charge_window") or DEFAULTS["charge_window"]))
+    except (TypeError, ValueError):
+        raise ValueError("Niveau de charge : deux valeurs numériques attendues.") from None
+    minutes = []
+    for level in CHARGER_LEVELS:
+        key, raw = charge_min_key(level.id), values.get(charge_min_key(level.id))
+        if level.id not in chargers or raw in (None, ""):  # an unselected level is greyed out: its value is ignored
+            continue
+        try:
+            number = float(raw)
+        except (TypeError, ValueError):
+            raise FieldError(f"Durée {level.label} : saisir une valeur numérique.", (key,)) from None
+        if not 0 < number <= MAX_CHARGE_MIN:
+            raise FieldError(f"Durée {level.label} : la valeur doit être comprise entre 0 et {MAX_CHARGE_MIN} min.", (key,))
+        minutes.append((level.id, number))
     request = TripRequest(
         origin, destination, numbers["temp_c"], numbers["battery_kwh"], numbers["start_soc"],
         numbers["min_soc"], bool(values.get("use_overpass", True)), numbers["max_detour_km"], chargers,
+        low, high, tuple(minutes),
     )
     request.vehicle()  # same check as the domain (capacity, percentages)
     return request
@@ -65,7 +96,10 @@ def to_query(request: TripRequest) -> str:
         "battery_kwh": f"{request.battery_kwh:g}", "start_soc": f"{request.start_soc:g}",
         "min_soc": f"{request.min_soc:g}", "max_detour_km": f"{request.max_detour_km:g}",
         "use_overpass": "1" if request.use_overpass else "0", "chargers": ",".join(request.chargers),
+        "charge_from": f"{request.charge_from_pct:g}", "charge_to": f"{request.charge_to_pct:g}",
     }
+    if request.charge_minutes:
+        params["charge_minutes"] = ",".join(f"{level}:{minutes:g}" for level, minutes in request.charge_minutes)
     return "?" + urlencode(params)
 
 
@@ -85,4 +119,19 @@ def from_query(search: str | None) -> dict | None:
         values["chargers"] = [c for c in q["chargers"].split(",") if c]  # unknown ids are rejected by TripRequest
     if "use_overpass" in q:
         values["use_overpass"] = q["use_overpass"] not in ("0", "false", "")
+    window = list(DEFAULTS["charge_window"])
+    for i, name in enumerate(("charge_from", "charge_to")):
+        if name in q:
+            try:
+                window[i] = float(q[name])
+            except ValueError:
+                window[i] = q[name]  # will be rejected by request_from_values
+    values["charge_window"] = window
+    for part in q.get("charge_minutes", "").split(","):  # "dc100:30,ac11:120"; unknown level ids are ignored
+        level_id, _, text = part.partition(":")
+        if level_id in {level.id for level in CHARGER_LEVELS} and text:
+            try:
+                values[charge_min_key(level_id)] = float(text)
+            except ValueError:
+                values[charge_min_key(level_id)] = text
     return values
