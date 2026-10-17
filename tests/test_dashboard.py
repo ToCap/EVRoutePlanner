@@ -9,6 +9,7 @@ from interfaces.dash_ui.app import create_app
 from interfaces.dash_ui.params import DEFAULTS, from_query, request_from_values, to_query
 from ev_trip.application.charging import plan_charging
 from ev_trip.application.jobs import MemoryStore, TripService
+from ev_trip.domain.config import CHARGER_LEVELS
 from ev_trip.domain.errors import RoutingError
 from ev_trip.presentation import build_charging_data, build_view_data
 from ev_trip.providers.overpass import OverpassStationSource
@@ -201,3 +202,54 @@ def test_energy_tab_has_a_multi_dropdown_with_all_levels():
     root = layout.build_layout("https://t/{z}/{x}/{y}.png", "osm")
     drop = next(n for n in walk(root) if getattr(n, "id", None) == "chargers")
     assert drop.multi is True and len(drop.options) == 6 and drop.value == DEFAULTS["chargers"]
+
+
+def test_timed_charge_roundtrip_through_form_request_and_url():
+    values = {**VALUES, "chargers": ["dc100", "ac11"], "charge_window": [20, 90], "charge_min_dc100": 25, "charge_min_ac11": "120"}
+    req = request_from_values(values)
+    assert (req.charge_from_pct, req.charge_to_pct, req.charge_minutes) == (20, 90, (("dc100", 25.0), ("ac11", 120.0)))
+    assert request_from_values(from_query(to_query(req))) == req
+    default = request_from_values(VALUES)
+    assert (default.charge_from_pct, default.charge_to_pct, default.charge_minutes) == (15, 80, ())
+    assert "charge_minutes" not in to_query(default) and default.key() != req.key()
+
+
+def test_timed_charge_ignores_unselected_levels_and_rejects_bad_values():
+    assert request_from_values({**VALUES, "chargers": ["dc100"], "charge_min_ac11": 90}).charge_minutes == ()  # greyed out: ignored
+    with pytest.raises(ValueError, match="Durée") as exc:
+        request_from_values({**VALUES, "charge_min_dc100": 0})
+    assert exc.value.fields == ("charge_min_dc100",)  # red field
+    with pytest.raises(ValueError, match="numérique") as exc:
+        request_from_values({**VALUES, "charge_min_ac22": "x"})
+    assert exc.value.fields == ("charge_min_ac22",)
+    for window in ([80, 15], [50, 50], [0, 101]):
+        with pytest.raises(ValueError, match="Niveau de charge"):
+            request_from_values({**VALUES, "charge_window": window})
+
+
+def test_energy_tab_has_the_charge_window_and_one_duration_input_per_level():
+    nodes = {getattr(n, "id", None): n for n in walk(layout.build_layout("https://t/{z}/{x}/{y}.png", "osm"))}
+    slider = nodes["charge-window"]
+    assert type(slider).__name__ == "RangeSlider" and slider.value == [15, 80]
+    for level in CHARGER_LEVELS:
+        assert nodes[f"charge-min-{level.id}"].disabled is False  # all levels are selected by default
+
+
+def test_duration_inputs_are_greyed_out_for_unselected_levels():
+    flags = dict(zip((level.id for level in CHARGER_LEVELS), callbacks.charge_inputs_disabled(["dc100", "ac11"])))
+    assert flags == {"dc100": False, "ac22": True, "ac11": False, "ac7_4": True, "ac3_7": True, "ac2_3": True}
+    assert all(callbacks.charge_inputs_disabled(None)) and not any(callbacks.charge_inputs_disabled(DEFAULTS["chargers"]))
+    assert any("charge-min-ac11.disabled" in key for key in create_app().callback_map)  # wired to the dropdown
+
+
+def test_service_passes_the_timed_charge_to_the_plan():
+    seen = {}
+    svc, jobs, _ = make_service(plan=lambda r, d, tariffs=None, **kw: seen.update(kw))
+    svc.start(request_from_values({**VALUES, "charge_min_dc100": 30}))
+    jobs[0]()
+    assert seen["charge_window"] == (15, 80) and seen["charge_minutes"] == {"dc100": 30.0}
+    seen.clear()
+    svc2, jobs2, _ = make_service(plan=lambda r, d, tariffs=None, **kw: seen.update(kw))
+    svc2.start(request_from_values(VALUES))
+    jobs2[0]()
+    assert "charge_minutes" not in seen  # no timing: the plan keeps its usual call
