@@ -81,24 +81,35 @@ def charger_options():
              "search": f"{level.label} {level.description}"} for level in CHARGER_LEVELS]
 
 
+def _accordion_item(title, item_id, *children):
+    """Collapsible block of an accordion: the group's fields under a clickable title."""
+    return dbc.AccordionItem(list(children), title=title, item_id=item_id)
+
+
+ENERGY_OPEN = ["battery", "recharge"]  # expanded at load; "consumption" is a placeholder, collapsed
+
+
 def tab_energy():
     return html.Div([
-        _section("Batterie", _group("Capacité batterie", _number("battery-kwh", DEFAULTS["battery_kwh"], 1, 300), "kWh")),
-        _section(
-            "Recharge",
-            html.Label("Niveaux de recharge acceptés", htmlFor="chargers", className="form-label"),
-            dcc.Dropdown(id="chargers", options=charger_options(), value=DEFAULTS["chargers"], multi=True, clearable=False,
-                         placeholder="Sélectionner un ou plusieurs niveaux", className="mb-2"),
-            html.P("Le niveau le plus élevé coché fixe la puissance maximale acceptée. Les bornes AC ou DC non cochées sont écartées.",
-                   className="small text-muted"),
-        ),
-        _section(
-            "Consommation",
-            html.P("Bientôt : consommation selon le type de route, la température, le mode éco, le chauffage et la climatisation.", className="small text-muted"),
-            dbc.Switch(id="eco-mode", label="Mode éco", value=False, disabled=True),
-            _group("Chauffage", dbc.Select(id="heating", options=[{"label": "Arrêt", "value": "off"}], value="off", disabled=True)),
-            _group("Climatisation", dbc.Select(id="aircon", options=[{"label": "Arrêt", "value": "off"}], value="off", disabled=True)),
-        ),
+        dbc.Accordion([
+            _accordion_item("Batterie", "battery",
+                            _group("Capacité batterie", _number("battery-kwh", DEFAULTS["battery_kwh"], 1, 300), "kWh")),
+            _accordion_item(
+                "Recharge", "recharge",
+                html.Label("Niveaux de recharge acceptés", htmlFor="chargers", className="form-label"),
+                dcc.Dropdown(id="chargers", options=charger_options(), value=DEFAULTS["chargers"], multi=True, clearable=False,
+                             placeholder="Sélectionner un ou plusieurs niveaux", className="mb-2"),
+                html.P("Le niveau le plus élevé coché fixe la puissance maximale acceptée. Les bornes AC ou DC non cochées sont écartées.",
+                       className="small text-muted"),
+            ),
+            _accordion_item(
+                "Consommation", "consumption",
+                html.P("Bientôt : consommation selon le type de route, la température, le mode éco, le chauffage et la climatisation.", className="small text-muted"),
+                dbc.Switch(id="eco-mode", label="Mode éco", value=False, disabled=True),
+                _group("Chauffage", dbc.Select(id="heating", options=[{"label": "Arrêt", "value": "off"}], value="off", disabled=True)),
+                _group("Climatisation", dbc.Select(id="aircon", options=[{"label": "Arrêt", "value": "off"}], value="off", disabled=True)),
+            ),
+        ], id="energy-accordion", always_open=True, active_item=ENERGY_OPEN, className="mt-3"),
     ])
 
 
