@@ -193,15 +193,16 @@ def test_chargers_roundtrip_through_form_request_and_url():
     assert request_from_values({**VALUES, "chargers": list(DEFAULTS["chargers"])}).chargers == tuple(DEFAULTS["chargers"])
     with pytest.raises(ValueError, match="Niveau de recharge inconnu"):
         request_from_values({**VALUES, "chargers": ["ac99"]})
-    with pytest.raises(ValueError, match="au moins un niveau"):
-        request_from_values({**VALUES, "chargers": [], "max_detour_km": 5})
+    empty = request_from_values({**VALUES, "chargers": [], "max_detour_km": 5})
+    assert empty.chargers == () and empty.wants_charging  # nothing selected: stations are not filtered
+    assert from_query(to_query(empty))["chargers"] == [] and request_from_values(from_query(to_query(empty))) == empty
     assert request_from_values({**VALUES, "chargers": [], "max_detour_km": 0}).chargers == ()  # irrelevant without station search
 
 
 def test_energy_tab_has_a_multi_dropdown_with_all_levels():
     root = layout.build_layout("https://t/{z}/{x}/{y}.png", "osm")
     drop = next(n for n in walk(root) if getattr(n, "id", None) == "chargers")
-    assert drop.multi is True and len(drop.options) == 6 and drop.value == DEFAULTS["chargers"]
+    assert drop.multi is True and len(drop.options) == 6 and drop.value == DEFAULTS["chargers"] and drop.clearable is True
 
 
 def test_timed_charge_roundtrip_through_form_request_and_url():

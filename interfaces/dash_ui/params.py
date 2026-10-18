@@ -63,8 +63,6 @@ def request_from_values(values: dict) -> TripRequest:
             raise FieldError(f"{label} : la valeur doit être comprise entre {lo} et {hi}.", (name,))
         numbers[name] = number
     chargers = tuple(values.get("chargers") or ())
-    if numbers["max_detour_km"] > 0 and not chargers:
-        raise ValueError("Recharge : sélectionner au moins un niveau de recharge (onglet Énergie).")
     try:
         low, high = (float(v) for v in (values.get("charge_window") or DEFAULTS["charge_window"]))
     except (TypeError, ValueError):
@@ -110,7 +108,8 @@ def to_query(request: TripRequest) -> str:
 
 def from_query(search: str | None) -> dict | None:
     """Form values from a query string; None if it does not describe a trip."""
-    q = {k: v[0] for k, v in parse_qs((search or "").lstrip("?")).items() if v}
+    # an empty `chargers` (no filtering) must survive the round trip, other blank values are ignored
+    q = {k: v[0] for k, v in parse_qs((search or "").lstrip("?"), keep_blank_values=True).items() if v and (v[0] or k == "chargers")}
     if not q.get("origin") or not q.get("destination"):
         return None
     values: dict = {**DEFAULTS, "origin": q["origin"], "destination": q["destination"]}

@@ -41,6 +41,7 @@ The vehicle accepts a subset of `dc100` (100 kW DC), `ac22`, `ac11`, `ac7_4`, `a
 
 - A **fast** station (power >= 50 kW, or CCS/CHAdeMO/Supercharger sockets) needs a DC level; a **normal** one needs an AC level. Unknown type: kept.
 - Charge time uses `min(station power, vehicle limit)` where the limit is the highest selected AC or DC level, and a charging efficiency of 0.85. Without data, stations are assumed 50 kW (fast) or 11 kW (normal).
+- No level selected (empty list): stations are not filtered and the vehicle limits stay at the `ChargingConfig` defaults (11 kW AC, 100 kW DC).
 - Interfaces: Dash dropdown in the **Énergie** tab, `--chargers dc100,ac11` in the CLI.
 
 ## Timed charge profile (optional)

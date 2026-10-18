@@ -107,8 +107,8 @@ def tab_energy():
             _accordion_item(
                 "Recharge", "recharge",
                 html.Label("Type de recharge", htmlFor="chargers", className="form-label"),
-                dcc.Dropdown(id="chargers", options=charger_options(), value=DEFAULTS["chargers"], multi=True, clearable=False,
-                             placeholder="Sélectionner un ou plusieurs niveaux", className="mb-2"),
+                dcc.Dropdown(id="chargers", options=charger_options(), value=DEFAULTS["chargers"], multi=True, clearable=True,
+                             placeholder="Tous les types (aucun filtre)", className="mb-2"),
                 html.P("Les bornes non cochées sont écartées.", className="small text-muted"),
                 _range_slider("charge-window", "Niveau de charge", DEFAULTS["charge_window"]),
                 html.P("Durée du niveau bas au niveau haut, par chargeur.", className="small text-muted mb-2"),
