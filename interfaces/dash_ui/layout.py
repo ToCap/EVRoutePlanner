@@ -70,8 +70,8 @@ def tab_trip():
         ),
         _accordion_item(
             "Charge", "charge",
-            _percent_slider("soc-slider", "Charge au départ", d["start_soc"]),
-            _percent_slider("min-slider", "Seuil d'alerte (minimum)", d["min_soc"]),
+            _input_slider("soc-slider", "Charge au départ", d["start_soc"]),
+            _input_slider("min-slider", "Seuil d'alerte (minimum)", d["min_soc"]),
         ),
     ]
     return html.Div([dbc.Accordion(items, id="trip-accordion", always_open=True, active_item=TRIP_OPEN, className="mt-3")])
