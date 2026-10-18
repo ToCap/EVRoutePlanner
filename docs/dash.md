@@ -18,7 +18,7 @@ The UI contains no business logic: it translates components to `TripRequest` and
 Flex row: `sidebar` (`dbc.Collapse`, `dimension="width"`, width `min(400px, 90vw)`) | main column (map 2/3, results 1/3).
 - The sidebar pushes the main column: map and chart are resized by a clientside callback that dispatches `resize` events (50/200/400 ms).
 - ✕ in the sidebar collapses it; ☰ (top left of the map) toggles it. It never disappears after a computation.
-- Sidebar tabs: **Trajet** (sections Itinéraire and Charge: origin, destination, temperature, start and minimum charge sliders), **Bornes** (max detour), **Énergie** (accordion, `always_open`: Batterie and Recharge open at load, Consommation collapsed; Recharge holds the charger multi-select, the "Niveau de charge" range slider and one duration input per level), **Configuration** (Overpass switch).
+- Sidebar tabs: **Trajet** (sections Itinéraire and Charge: origin, destination, temperature, start and minimum charge sliders), **Bornes** (max detour), **Énergie** (accordion, `always_open`: Batterie and Recharge open at load, Consommation collapsed; Batterie holds the nominal capacity and the "Santé de la batterie" slider (50-100 %, default 100); Recharge holds the charger multi-select, the "Niveau de charge" range slider and one duration input per level), **Configuration** (Overpass switch).
 - Footer shared by all tabs: error area + **Calculer** button, pinned at the bottom.
 - Results tabs: Charge restante (chart), Détail par tranche, Bornes de recharge. Map: zoom control top right, spinner centered, "Affinage en cours…" badge bottom left.
 
@@ -30,6 +30,7 @@ Flex row: `sidebar` (`dbc.Collapse`, `dimension="width"`, width `min(400px, 90vw
 - **Shared link**: the query string holds all form values (`to_query` / `from_query`). Page load or URL change runs `on_url`: it restores the fields and starts the trip, without busy indicators.
 - **Map markers**: start/end markers differ from station markers (diamond with ⚡, `dl.DivMarker`, colored by score).
 - **Timed charge**: `charge-window` (RangeSlider, default 15-80 %) and one optional minutes input per level (`charge-min-<level id>`) give the time to go from x % to y % (see [bornes.md](bornes.md)). `on_chargers` greys out the input of every unselected level, and its value is ignored. Form keys: `charge_window`, `charge_min_<level id>`; URL: `charge_from`, `charge_to`, `charge_minutes=dc100:30,ac11:120`.
+- **Battery health**: the `battery-health` slider gives the state of health; the simulated capacity is `nominal x health`, and the charge levels (start, reserve) apply to that real capacity (see [calcul.md](calcul.md)). Form key `battery_health_pct`, URL `battery_health`.
 - **Chargers**: the multi-select (`dcc.Dropdown(multi=True)`) lists `CHARGER_LEVELS`; selected levels filter stations and cap the vehicle charge power (see [bornes.md](bornes.md)).
 
 ## Pitfalls (Dash 4)

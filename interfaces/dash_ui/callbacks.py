@@ -17,9 +17,9 @@ from ev_trip.presentation import build_charging_data, build_view_data
 
 log = logging.getLogger(__name__)
 FIELD_IDS = ("origin", "destination", "temp-c", "battery-kwh", "soc-slider", "min-slider", "max-detour", "use-overpass", "chargers",
-             "charge-window", *[charge_min_id(level.id) for level in CHARGER_LEVELS])
+             "charge-window", *[charge_min_id(level.id) for level in CHARGER_LEVELS], "battery-health")
 FIELD_KEYS = ("origin", "destination", "temp_c", "battery_kwh", "start_soc", "min_soc", "max_detour_km", "use_overpass", "chargers",
-              "charge_window", *[charge_min_key(level.id) for level in CHARGER_LEVELS])
+              "charge_window", *[charge_min_key(level.id) for level in CHARGER_LEVELS], "battery_health_pct")
 INVALIDABLE = {"origin": "origin", "destination": "destination", "temp_c": "temp-c", "battery_kwh": "battery-kwh", "max_detour_km": "max-detour",
                **{charge_min_key(level.id): charge_min_id(level.id) for level in CHARGER_LEVELS}}
 

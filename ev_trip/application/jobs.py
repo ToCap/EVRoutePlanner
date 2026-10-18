@@ -37,6 +37,7 @@ class TripRequest:
     charge_from_pct: float = 15.0  # timed charge window: start (%)
     charge_to_pct: float = 80.0  # timed charge window: end (%), also the recharge cap when a duration is given
     charge_minutes: tuple[tuple[str, float], ...] = ()  # (level id, minutes to go from -> to) of the selected levels
+    battery_health_pct: float = 100.0  # state of health: real capacity = nominal x health; charge levels apply to the real one
 
     def __post_init__(self) -> None:
         known = [level.id for level in CHARGER_LEVELS]
@@ -44,6 +45,8 @@ class TripRequest:
         if unknown:
             raise ValueError(f"Niveau de recharge inconnu : {', '.join(unknown)}.")
         object.__setattr__(self, "chargers", tuple(c for c in known if c in self.chargers))  # canonical order: same key
+        if not 0 < self.battery_health_pct <= 100:
+            raise ValueError("Santé de la batterie : la valeur doit être > 0 et <= 100 %.")
         timed = dict(self.charge_minutes)
         bad = [c for c in timed if c not in known]
         if bad:
@@ -59,7 +62,7 @@ class TripRequest:
         return hashlib.sha1(json.dumps(asdict(self), sort_keys=True).encode("utf-8")).hexdigest()
 
     def vehicle(self) -> VehicleParams:
-        return VehicleParams(self.battery_kwh, self.start_soc, self.min_soc)
+        return VehicleParams(self.battery_kwh * self.battery_health_pct / 100.0, self.start_soc, self.min_soc)  # real capacity
 
     @property
     def wants_charging(self) -> bool:

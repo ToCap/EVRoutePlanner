@@ -22,7 +22,7 @@ def charge_min_id(level_id: str) -> str:
 DEFAULTS = {
     "origin": "", "destination": "", "temp_c": 15.0, "battery_kwh": 52.0,
     "start_soc": 90.0, "min_soc": 10.0, "max_detour_km": 5.0, "use_overpass": True, "chargers": list(DEFAULT_CHARGERS),
-    "charge_window": [15, 80], **{charge_min_key(level.id): None for level in CHARGER_LEVELS},
+    "battery_health_pct": 100, "charge_window": [15, 80], **{charge_min_key(level.id): None for level in CHARGER_LEVELS},
 }
 _RANGES = {  # field: (label, min, max, required)
     "temp_c": ("Température", -50, 60, True),
@@ -69,6 +69,10 @@ def request_from_values(values: dict) -> TripRequest:
         low, high = (float(v) for v in (values.get("charge_window") or DEFAULTS["charge_window"]))
     except (TypeError, ValueError):
         raise ValueError("Niveau de charge : deux valeurs numériques attendues.") from None
+    try:
+        health = float(values.get("battery_health_pct", DEFAULTS["battery_health_pct"]))
+    except (TypeError, ValueError):
+        raise ValueError("Santé de la batterie : saisir une valeur numérique.") from None
     minutes = []
     for level in CHARGER_LEVELS:
         key, raw = charge_min_key(level.id), values.get(charge_min_key(level.id))
@@ -84,7 +88,7 @@ def request_from_values(values: dict) -> TripRequest:
     request = TripRequest(
         origin, destination, numbers["temp_c"], numbers["battery_kwh"], numbers["start_soc"],
         numbers["min_soc"], bool(values.get("use_overpass", True)), numbers["max_detour_km"], chargers,
-        low, high, tuple(minutes),
+        low, high, tuple(minutes), battery_health_pct=health,
     )
     request.vehicle()  # same check as the domain (capacity, percentages)
     return request
@@ -97,6 +101,7 @@ def to_query(request: TripRequest) -> str:
         "min_soc": f"{request.min_soc:g}", "max_detour_km": f"{request.max_detour_km:g}",
         "use_overpass": "1" if request.use_overpass else "0", "chargers": ",".join(request.chargers),
         "charge_from": f"{request.charge_from_pct:g}", "charge_to": f"{request.charge_to_pct:g}",
+        "battery_health": f"{request.battery_health_pct:g}",
     }
     if request.charge_minutes:
         params["charge_minutes"] = ",".join(f"{level}:{minutes:g}" for level, minutes in request.charge_minutes)
@@ -119,6 +124,11 @@ def from_query(search: str | None) -> dict | None:
         values["chargers"] = [c for c in q["chargers"].split(",") if c]  # unknown ids are rejected by TripRequest
     if "use_overpass" in q:
         values["use_overpass"] = q["use_overpass"] not in ("0", "false", "")
+    if "battery_health" in q:
+        try:
+            values["battery_health_pct"] = float(q["battery_health"])
+        except ValueError:
+            values["battery_health_pct"] = q["battery_health"]  # will be rejected by request_from_values
     window = list(DEFAULTS["charge_window"])
     for i, name in enumerate(("charge_from", "charge_to")):
         if name in q:

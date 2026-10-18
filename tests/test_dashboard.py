@@ -76,7 +76,7 @@ def test_layout_structure():
     assert [t.label for t in tabs.children] == ["Trajet", "Bornes", "Énergie", "Configuration"]
     groups = [n for n in nodes if type(n).__name__ == "InputGroup"]
     assert len(groups) >= 5
-    assert sum(type(n).__name__ == "Slider" for n in nodes) == 2  # start charge and alert threshold
+    assert sum(type(n).__name__ == "Slider" for n in nodes) == 3  # start charge, alert threshold and battery health
     assert sum(getattr(n, "id", None) == "compute-btn" for n in nodes) == 1  # a single shared button
     for disabled_id in ("eco-mode", "heating", "aircon"):  # tab 3: reserved for future use
         assert next(n for n in nodes if getattr(n, "id", None) == disabled_id).disabled is True
@@ -253,3 +253,21 @@ def test_service_passes_the_timed_charge_to_the_plan():
     svc2.start(request_from_values(VALUES))
     jobs2[0]()
     assert "charge_minutes" not in seen  # no timing: the plan keeps its usual call
+
+
+def test_battery_health_scales_the_real_capacity_and_roundtrips_through_the_url():
+    req = request_from_values({**VALUES, "battery_health_pct": 80})
+    assert req.battery_health_pct == 80 and req.vehicle().battery_kwh == pytest.approx(52 * 0.8)
+    assert req.vehicle().start_soc_pct == 90 and req.vehicle().min_soc_pct == 10  # levels apply to the real capacity, not scaled
+    assert request_from_values(from_query(to_query(req))) == req
+    default = request_from_values(VALUES)
+    assert default.battery_health_pct == 100 and default.vehicle().battery_kwh == 52 and default.key() != req.key()
+    for bad in (0, 101, "x", None):
+        with pytest.raises(ValueError, match="Santé"):
+            request_from_values({**VALUES, "battery_health_pct": bad})
+
+
+def test_battery_item_has_a_health_slider_defaulting_to_100():
+    nodes = {getattr(n, "id", None): n for n in walk(layout.build_layout("https://t/{z}/{x}/{y}.png", "osm"))}
+    slider = nodes["battery-health"]
+    assert type(slider).__name__ == "Slider" and slider.value == 100 and slider.min == 50 and slider.max == 100

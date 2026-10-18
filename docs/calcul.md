@@ -51,4 +51,6 @@ For each slice: `energy = length × consumption / 100`, `remaining -= energy`. T
 
 Worked example: 10 kWh battery, reserve 50 %, mean city 12.5 kWh/100 km: 5 kWh usable = 40 km; with 15 km slices the result is 15 + 15 + 10 km (truncated).
 
+**Battery capacity:** the simulated capacity is the real one, `nominal x health` (health 100 % by default). The charge levels (start, reserve) are percentages of this real capacity, not of the nominal one: 52 kWh nominal at 80 % health = 41.6 kWh, and a 90 % start is 37.4 kWh.
+
 The 3 scenarios use the same slices; only the consumption differs. Output (console, CSV with `;` separator, web) shows kWh/100 km, kWh and charge % per scenario, plus a summary (km driven, energy, final charge, status). A "–" cell is a slice never reached.
