@@ -148,20 +148,21 @@ def sidebar():
                 html.H5("Paramètres", className="mb-0"),
                 dbc.Button(html.Span("✕"), id="close-sidebar", color="link", size="sm", title="Replier le panneau", className="text-secondary"),
             ], className="d-flex justify-content-between align-items-center mb-2"),
-            dbc.Tabs([
+            # only the tabs scroll: header and footer keep their height
+            html.Div(dbc.Tabs([
                 dbc.Tab(tab_trip(), label="Trajet", tab_id="tab-trip", label_class_name="px-2"),
                 dbc.Tab(tab_stations(), label="Bornes", tab_id="tab-stations", label_class_name="px-2"),
                 dbc.Tab(tab_energy(), label="Énergie", tab_id="tab-energy", label_class_name="px-2"),
                 dbc.Tab(tab_configuration(), label="Configuration", tab_id="tab-configuration", label_class_name="px-2"),
-            ], id="side-tabs", active_tab="tab-trip"),
-            # footer shared by all tabs: pinned at the bottom of the panel
+            ], id="side-tabs", active_tab="tab-trip"), id="side-scroll", className="flex-grow-1 overflow-auto", style={"minHeight": 0}),
+            # footer shared by all tabs: pinned below the scrolling area
             html.Div([
                 html.Div(id="form-error"),
                 dbc.Button("Calculer", id="compute-btn", color="primary", className="w-100 mt-2"),
-            ], className="mt-auto pt-2 border-top"),
-        ], className="p-3 d-flex flex-column", style={"width": SIDEBAR_WIDTH, "minHeight": "100%"}),
+            ], className="flex-shrink-0 pt-2 border-top"),
+        ], className="p-3 d-flex flex-column", style={"width": SIDEBAR_WIDTH, "height": "100%"}),
         id="sidebar", is_open=True, dimension="width", className="border-end bg-body flex-shrink-0",
-        style={"height": "100vh", "overflowY": "auto"},
+        style={"height": "100vh", "overflow": "hidden"},
     )
 
 

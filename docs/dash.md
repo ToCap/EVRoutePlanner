@@ -19,7 +19,7 @@ Flex row: `sidebar` (`dbc.Collapse`, `dimension="width"`, width `min(400px, 90vw
 - The sidebar pushes the main column: map and chart are resized by a clientside callback that dispatches `resize` events (50/200/400 ms).
 - ✕ in the sidebar collapses it; ☰ (top left of the map) toggles it. It never disappears after a computation.
 - Sidebar tabs: **Trajet** (accordion, `always_open`, both items open at load: Itinéraire and Charge: origin, destination, temperature, start and minimum charge sliders), **Bornes** (max detour), **Énergie** (accordion, `always_open`: Batterie and Recharge open at load, Consommation collapsed; Batterie holds the nominal capacity and the "Santé de la batterie" slider (50-100 %, default 100); Recharge holds the "Niveau de charge" range slider, the charger multi-select ("Type de recharge") and one duration input per level), **Configuration** (Overpass switch).
-- Footer shared by all tabs: error area + **Calculer** button, pinned at the bottom.
+- Footer shared by all tabs: error area + **Calculer** button, pinned below the tabs; only the tabs area (`side-scroll`) scrolls.
 - Results tabs: Charge restante (chart), Détail par tranche, Bornes de recharge. Map: zoom control top right, spinner centered, "Affinage en cours…" badge bottom left.
 
 ## Behaviors
