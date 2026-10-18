@@ -106,7 +106,7 @@ def tab_energy():
                             _percent_slider("battery-health", "Santé de la batterie", DEFAULTS["battery_health_pct"], lo=50)),
             _accordion_item(
                 "Recharge", "recharge",
-                html.Label("Niveaux de recharge acceptés", htmlFor="chargers", className="form-label"),
+                html.Label("Type de recharge", htmlFor="chargers", className="form-label"),
                 dcc.Dropdown(id="chargers", options=charger_options(), value=DEFAULTS["chargers"], multi=True, clearable=False,
                              placeholder="Sélectionner un ou plusieurs niveaux", className="mb-2"),
                 html.P("Les bornes non cochées sont écartées.", className="small text-muted"),
