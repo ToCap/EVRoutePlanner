@@ -127,7 +127,6 @@ def tab_energy():
             ),
             _accordion_item(
                 "Consommation", "consumption",
-                html.P("Bientôt : consommation selon le type de route, la température, le mode éco, le chauffage et la climatisation.", className="small text-muted"),
                 dbc.Switch(id="eco-mode", label="Mode éco", value=False, disabled=True),
                 _group("Chauffage", dbc.Select(id="heating", options=[{"label": "Arrêt", "value": "off"}], value="off", disabled=True)),
                 _group("Climatisation", dbc.Select(id="aircon", options=[{"label": "Arrêt", "value": "off"}], value="off", disabled=True)),
