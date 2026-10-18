@@ -1,6 +1,8 @@
 """Builds display components (map, banners, cards, chart, tables) from `ev_trip.presentation` data; pure functions."""
 from __future__ import annotations
 
+import hashlib
+
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
 import plotly.graph_objects as go
@@ -54,31 +56,58 @@ def bounds_of(data: dict) -> list[list[float]]:
 
 
 def banners(entry: TripEntry, data: dict) -> list:
-    out = []
+    """Persistent alert: a single line for all interrupted scenarios (empty when the trip completes)."""
     stopped = [s for s in data["scenarios"] if not s["completed"]]
-    if stopped:  # a single line for all interrupted scenarios
-        detail = " · ".join(f"{s['label']} : km {s['alert']['km']}" for s in stopped)
-        out.append(dbc.Alert(
-            [html.Strong(f"Trajet interrompu avant l'arrivée ({data['trip_km']:.1f} km) : "), detail,
-             f" — seuil de réserve atteint ({data['min_soc']:g} %)."], color="danger", className="py-1 mb-2"))
-    for w in entry.report.warnings:
-        out.append(dbc.Alert(w, color="light", className="py-1 mb-2"))
-    report = entry.report
+    if not stopped:
+        return []
+    detail = " · ".join(f"{s['label']} : km {s['alert']['km']}" for s in stopped)
+    return [dbc.Alert([html.Strong(f"Trajet interrompu avant l'arrivée ({data['trip_km']:.1f} km) : "), detail,
+                       f" — seuil de réserve atteint ({data['min_soc']:g} %)."], color="danger", className="py-1 mb-2")]
+
+
+LEVEL_RANK = {"success": 0, "info": 1, "warning": 2, "danger": 3}
+NOTIF_KEEP = 3
+NOTIF_AUTO_CLOSE_MS = 4000  # success and info toasts close by themselves; warnings and errors stay
+
+
+def notifications(entry: TripEntry, key: str) -> list[dict]:
+    """Transient messages of a trip state as `{id, level, text}` (the id changes with the trip)."""
+    items = [("warning", w) for w in entry.report.warnings]
     if entry.state == REFINING:
-        if report.refinable:
-            text = [html.Strong("Première estimation. "),
-                    "Le type des routes hors autoroute est encore approximatif : affinage en arrière-plan en cours"
-                    + (", puis recherche des bornes de recharge" if entry.max_detour_km > 0 else "")
-                    + ", l'affichage se mettra à jour automatiquement."]
+        if entry.report.refinable:
+            text = ("Première estimation : affinage du type des routes en cours"
+                    + (", puis recherche des bornes de recharge" if entry.max_detour_km > 0 else "") + ".")
         else:
-            text = [html.Strong("Recherche des bornes de recharge en cours "), ": l'affichage se mettra à jour automatiquement."]
-        out.append(dbc.Alert(text, color="info", className="py-1 mb-2"))
+            text = "Recherche des bornes de recharge en cours."
+        items.append(("info", text))
     elif entry.state == FAILED:
-        what = "Affinage impossible" if report.refinable else "Recherche des bornes impossible"
-        out.append(dbc.Alert(f"{what} ({entry.error}) : résultat partiel conservé.", color="warning", className="py-1 mb-2"))
+        what = "Affinage impossible" if entry.report.refinable else "Recherche des bornes impossible"
+        items.append(("danger", f"{what} ({entry.error}) : résultat partiel conservé."))
     elif entry.refined:
-        out.append(dbc.Alert("Résultat affiné (types de route vérifiés tous les km hors autoroute).", color="light", className="py-1 mb-2"))
-    return out
+        items.append(("success", "Résultat affiné (types de route vérifiés tous les km hors autoroute)."))
+    return [{"id": hashlib.sha1(f"{key}|{level}|{text}".encode()).hexdigest()[:10], "level": level, "text": text} for level, text in items]
+
+
+def merge_notifications(history: list[dict] | None, incoming: list[dict], keep: int = NOTIF_KEEP) -> tuple[list[dict], list[dict]]:
+    """Returns (history kept: the `keep` most important, then newest; fresh: incoming not yet seen)."""
+    history = history or []
+    seen = {n["id"] for n in history}
+    fresh = [n for n in incoming if n["id"] not in seen]
+    merged = sorted([*fresh, *history], key=lambda n: -LEVEL_RANK[n["level"]])  # stable: newest first within a level
+    return merged[:keep], fresh
+
+
+def notification_toasts(fresh: list[dict]) -> list:
+    return [dbc.Toast(n["text"], id=f"toast-{n['id']}", is_open=True, dismissable=True, icon=n["level"],
+                      duration=NOTIF_AUTO_CLOSE_MS if LEVEL_RANK[n["level"]] < 2 else None, className="mb-2 w-100") for n in fresh]
+
+
+def notification_list(history: list[dict]) -> list:
+    """Content of the notification popover."""
+    if not history:
+        return [html.Div("Aucune notification.", className="small text-muted")]
+    return [html.Div([dbc.Badge(" ", color=n["level"], className="me-2"), html.Span(n["text"], className="small")], className="mb-1")
+            for n in history]
 
 
 def trip_summary(data: dict, duration_min: float) -> html.Div:

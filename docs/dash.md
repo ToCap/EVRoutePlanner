@@ -26,6 +26,8 @@ Flex row: `sidebar` (`dbc.Collapse`, `dimension="width"`, width `min(400px, 90vw
 
 - **Compute**: the button triggers `on_compute`; busy indicators (`running=`: disabled button + green spinner) are shown only while this callback runs, never at page load.
 - **Validation**: invalid or missing fields get a red outline (`invalid=True`, via `FieldError.fields`), with no alert; editing a field clears its outline. Other errors (geocoding, routing) show a `dbc.Alert` in the footer.
+- **Notifications**: info, success and warning messages (first estimate, search in progress, refined result, warnings) are toasts at the top right of the map; info/success close after 4 s, warnings and errors stay. The 🔔 badge (map, top left, hidden when empty) opens the last 3, kept by importance then recency (`merge_notifications`).
+- **Interrupted trip**: the red alert is shown in the "Trajet calculé" tab and floats at the bottom of the map (`map-alert`).
 - **Result**: the first estimate appears immediately; a 3 s poll (`dcc.Interval`) refreshes the panels while the job refines the trip and searches stations, then stops. After each new `trip-key` the map fits the route (`boundsOptions` padding keeps it clear of the controls).
 - **Shared link**: the query string holds all form values (`to_query` / `from_query`). Page load or URL change runs `on_url`: it restores the fields and starts the trip, without busy indicators.
 - **Map markers**: start/end markers differ from station markers (diamond with ⚡, `dl.DivMarker`, colored by score).

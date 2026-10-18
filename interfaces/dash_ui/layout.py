@@ -19,6 +19,8 @@ _OVER_MAP = {"position": "absolute", "zIndex": 1000}
 SPINNER_HIDDEN = {**_OVER_MAP, "display": "none"}
 SPINNER_SHOWN = {**_OVER_MAP, "top": "50%", "left": "50%", "transform": "translate(-50%, -50%)", "display": "block"}
 BADGE_HIDDEN = {**_OVER_MAP, "display": "none"}
+NOTIF_BTN_SHOWN = {**_OVER_MAP, "top": "10px", "left": "52px"}
+NOTIF_BTN_HIDDEN = {**NOTIF_BTN_SHOWN, "display": "none"}
 BADGE_SHOWN = {**_OVER_MAP, "bottom": "28px", "left": "10px", "display": "flex", "alignItems": "center"}
 
 
@@ -177,6 +179,11 @@ def map_view(tile_url: str, attribution: str):
         # panel toggle, top left: visible once the sidebar is collapsed (its close cross only collapses it)
         html.Div(dbc.Spinner(color="success", spinner_style={"width": "4rem", "height": "4rem"}), id="compute-spinner",
                  style=SPINNER_HIDDEN),
+        dbc.Button(["🔔 ", dbc.Badge("0", id="notif-count", color="secondary", pill=True)], id="notif-btn", color="light", size="sm",
+                   title="Dernières notifications", className="shadow-sm border", style=NOTIF_BTN_HIDDEN),
+        dbc.Popover(dbc.PopoverBody(id="notif-list"), target="notif-btn", trigger="legacy", placement="bottom"),
+        html.Div(id="toasts", style={**_OVER_MAP, "top": "10px", "right": "60px", "width": "320px"}),
+        html.Div(id="map-alert", style={**_OVER_MAP, "bottom": "28px", "left": "50%", "transform": "translateX(-50%)", "maxWidth": "90%"}),
         html.Div([dbc.Spinner(color="success", size="sm"), html.Span("Affinage en cours…", className="ms-2 small")],
                  id="refine-badge", className="bg-white border rounded shadow-sm px-2 py-1", style=BADGE_HIDDEN),
         dbc.Button("☰", id="open-sidebar", color="light", size="sm", title="Afficher les paramètres", className="shadow-sm border",
@@ -186,9 +193,8 @@ def map_view(tile_url: str, attribution: str):
 
 def routes_panel():
     return html.Div([
-        html.Div(id="status-area"),
         dbc.Tabs([
-            dbc.Tab(html.Div([html.Div(id="trip-summary"), html.Div(id="scenario-cards")], className="pt-2"),
+            dbc.Tab(html.Div([html.Div(id="status-area"), html.Div(id="trip-summary"), html.Div(id="scenario-cards")], className="pt-2"),
                     label="Trajet calculé", tab_id="t-trip"),
             dbc.Tab(dcc.Graph(id="charge-graph", figure=charge_figure(), style={"height": "calc(34vh - 90px)", "minHeight": "180px"},
                               config={"displaylogo": False}), label="Charge restante", tab_id="t-charge"),
@@ -206,6 +212,8 @@ def build_layout(tile_url: str, attribution: str):
                 className="g-0 m-0 border-top", style={"flex": "1 1 0", "minHeight": 0, "overflowY": "auto"}),
     ], className="d-flex flex-column flex-grow-1", style={"minWidth": 0, "height": "100vh"})
     return html.Div([
+        dcc.Store(id="notif-new"),
+        dcc.Store(id="notif-history", data=[]),
         dcc.Location(id="url", refresh=False),
         dcc.Store(id="trip-key"),
         dcc.Store(id="resize-sink"),

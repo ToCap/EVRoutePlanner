@@ -8,7 +8,7 @@ from dash import Input, Output, State, callback_context, no_update
 import dash_bootstrap_components as dbc
 
 from interfaces.dash_ui import components as ui
-from interfaces.dash_ui.layout import BADGE_HIDDEN, BADGE_SHOWN, SPINNER_HIDDEN, SPINNER_SHOWN
+from interfaces.dash_ui.layout import BADGE_HIDDEN, BADGE_SHOWN, NOTIF_BTN_HIDDEN, NOTIF_BTN_SHOWN, SPINNER_HIDDEN, SPINNER_SHOWN
 from interfaces.dash_ui.params import FieldError, charge_min_id, charge_min_key, from_query, request_from_values, to_query
 from ev_trip.application.jobs import REFINING, TripService
 from ev_trip.domain.config import CHARGER_LEVELS
@@ -53,24 +53,32 @@ def compute(service: TripService, trigger: str | None, values: dict, search: str
 
 def refresh(service: TripService, key: str | None):
     """Renders all panels from the current state; returns a dict per output + polling stop."""
-    empty = {"route": [], "markers": [], "status": [], "summary": no_update, "cards": no_update, "graph": ui.charge_figure(),
+    empty = {"route": [], "markers": [], "status": [], "map_alert": [], "notifs": [], "summary": no_update, "cards": no_update, "graph": ui.charge_figure(),
              "detail": [], "stations": [], "poll_disabled": True}
     if not key:
         return empty
     entry = service.get(key)
     if entry is None:
-        return {**empty, "status": [dbc.Alert("Résultat expiré : relancer le calcul.", color="warning", className="py-1 m-2")]}
+        expired = [dbc.Alert("Résultat expiré : relancer le calcul.", color="warning", className="py-1 m-2")]
+        return {**empty, "status": expired, "map_alert": expired}
     data = build_view_data(entry.report)
     if entry.charging is not None:
         data["charging"] = build_charging_data(entry.charging)
     requested = entry.max_detour_km > 0
     return {
         "route": ui.route_layers(data), "markers": ui.marker_layers(data),
-        "status": ui.banners(entry, data), "summary": ui.trip_summary(data, entry.report.route.duration_min), "cards": ui.scenario_cards(data),
+        "status": ui.banners(entry, data), "map_alert": ui.banners(entry, data), "notifs": ui.notifications(entry, key), "summary": ui.trip_summary(data, entry.report.route.duration_min), "cards": ui.scenario_cards(data),
         "graph": ui.charge_figure(data), "detail": ui.detail_table(data),
         "stations": ui.stations_table(data.get("charging"), requested),
         "poll_disabled": entry.state != REFINING,
     }
+
+
+def notify(incoming: list[dict] | None, history: list[dict] | None):
+    """Merges new notifications into the history; returns (toasts, history, popover content, button style, count)."""
+    kept, fresh = ui.merge_notifications(history, incoming or [])
+    return (ui.notification_toasts(fresh) if fresh else no_update, kept, ui.notification_list(kept),
+            NOTIF_BTN_SHOWN if kept else NOTIF_BTN_HIDDEN, str(len(kept)))
 
 
 def map_bounds(service: TripService, key: str | None):
@@ -133,12 +141,21 @@ def register(app, service: TripService) -> None:
         Output("route-layer", "children"), Output("markers-layer", "children"), Output("status-area", "children"),
         Output("trip-summary", "children"), Output("scenario-cards", "children"), Output("charge-graph", "figure"), Output("detail-table", "children"),
         Output("stations-table", "children"), Output("poll", "disabled"), Output("refine-badge", "style"),
+        Output("map-alert", "children"), Output("notif-new", "data"),
         Input("trip-key", "data"), Input("poll", "n_intervals"),
     )
     def on_refresh(key, _n):
         r = refresh(service, key)
         return (r["route"], r["markers"], r["status"], r["summary"], r["cards"], r["graph"], r["detail"], r["stations"], r["poll_disabled"],
-                BADGE_HIDDEN if r["poll_disabled"] else BADGE_SHOWN)
+                BADGE_HIDDEN if r["poll_disabled"] else BADGE_SHOWN, r["map_alert"], r["notifs"])
+
+    @app.callback(
+        Output("toasts", "children"), Output("notif-history", "data"), Output("notif-list", "children"),
+        Output("notif-btn", "style"), Output("notif-count", "children"),
+        Input("notif-new", "data"), State("notif-history", "data"),
+    )
+    def on_notifications(incoming, history):
+        return notify(incoming, history)
 
     @app.callback(Output("map", "bounds"), Input("trip-key", "data"), prevent_initial_call=True)
     def on_bounds(key):

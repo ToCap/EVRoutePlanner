@@ -148,7 +148,7 @@ def test_refresh_renders_every_panel_and_keeps_polling_while_busy():
     key, *_ = callbacks.compute(svc, "compute-btn", {**VALUES, "max_detour_km": 5}, "", None)
     busy = callbacks.refresh(svc, key)
     assert busy["poll_disabled"] is False and busy["markers"] == []
-    assert "en cours" in str(busy["stations"].children) and any("Recherche des bornes" in str(b) for b in busy["status"])
+    assert "en cours" in str(busy["stations"].children) and any("Recherche des bornes" in n["text"] for n in busy["notifs"])
     jobs[0]()
     done = callbacks.refresh(svc, key)
     assert done["poll_disabled"] is True
@@ -167,7 +167,7 @@ def test_interrupted_trip_shows_alert_and_stop_markers():
     key, *_ = callbacks.compute(svc, "compute-btn", VALUES, "", None)
     r = callbacks.refresh(svc, key)
     assert sum("interrompu" in str(b) for b in r["status"]) == 1  # a single alert for the 3 scenarios
-    assert len(r["markers"]) >= 1 and "interrompu" in str(r["cards"]) and "km" in str(r["summary"])
+    assert len(r["markers"]) >= 1 and "interrompu" in str(r["cards"]) and "interrompu" in str(r["map_alert"]) and "km" in str(r["summary"])
 
 
 def test_charging_panel_states():
@@ -280,6 +280,26 @@ def test_results_in_one_tab_block_trip_first():
     assert tabs.children[0].label == "Trajet calculé"
     ids = {getattr(n, "id", None) for n in walk(tabs.children[0])}
     assert {"trip-summary", "scenario-cards"} <= ids
+
+
+def _note(i, level):
+    return {"id": f"n{i}", "level": level, "text": f"t{i}"}
+
+
+def test_notifications_keep_three_most_important_and_dedup():
+    history, fresh = components.merge_notifications(None, [_note(1, "success"), _note(2, "danger"), _note(3, "info"), _note(4, "warning")])
+    assert [n["id"] for n in history] == ["n2", "n4", "n3"] and len(fresh) == 4  # success dropped
+    history, fresh = components.merge_notifications(history, [_note(2, "danger"), _note(5, "danger")])
+    assert [n["id"] for n in fresh] == ["n5"] and [n["id"] for n in history] == ["n5", "n2", "n4"]
+
+
+def test_notify_hides_button_when_empty_and_toasts_only_fresh():
+    toasts, history, _lst, style, count = callbacks.notify([], [])
+    assert toasts is no_update and history == [] and style["display"] == "none" and count == "0"
+    toasts, history, _lst, style, count = callbacks.notify([_note(1, "info")], [])
+    assert len(toasts) == 1 and toasts[0].duration == components.NOTIF_AUTO_CLOSE_MS and "display" not in style and count == "1"
+    assert callbacks.notify([_note(1, "info")], history)[0] is no_update  # already notified
+
 
 
 def test_compute_button_pinned_outside_scrolling_tabs():
