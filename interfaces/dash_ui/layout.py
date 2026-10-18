@@ -59,27 +59,22 @@ def _input_slider(id_, label, value, lo=0):
     ], className="mb-3")
 
 
-def _section(title, *children):
-    """Titled block: a full-width InputGroup header over the group's fields."""
-    header = dbc.InputGroup(dbc.InputGroupText(title, className="w-100 fw-semibold rounded-0 rounded-top border-0 border-bottom bg-body-secondary"))
-    return html.Div([header, html.Div(list(children), className="p-2 pb-0")], className="border rounded mt-3")
-
-
 def tab_trip():
     d = DEFAULTS
-    return html.Div([
-        _section(
-            "Itinéraire",
+    items = [
+        _accordion_item(
+            "Itinéraire", "route",
             _group("Départ", dbc.Input(id="origin", type="text", value=d["origin"], placeholder="Paris", debounce=True)),
             _group("Destination", dbc.Input(id="destination", type="text", value=d["destination"], placeholder="Saint-Lô", debounce=True)),
             _group("Température", _number("temp-c", d["temp_c"], -50, 60), "°C"),
         ),
-        _section(
-            "Charge",
+        _accordion_item(
+            "Charge", "charge",
             _percent_slider("soc-slider", "Charge au départ", d["start_soc"]),
             _percent_slider("min-slider", "Seuil d'alerte (minimum)", d["min_soc"]),
         ),
-    ])
+    ]
+    return html.Div([dbc.Accordion(items, id="trip-accordion", always_open=True, active_item=TRIP_OPEN, className="mt-3")])
 
 
 def tab_stations():
@@ -103,6 +98,7 @@ def _accordion_item(title, item_id, *children):
     return dbc.AccordionItem(list(children), title=title, item_id=item_id)
 
 
+TRIP_OPEN = ["route", "charge"]  # both expanded at load
 ENERGY_OPEN = ["battery", "recharge"]  # expanded at load; "consumption" is a placeholder, collapsed
 
 

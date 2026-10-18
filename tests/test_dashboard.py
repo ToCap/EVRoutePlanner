@@ -278,3 +278,9 @@ def test_battery_item_has_a_health_slider_defaulting_to_100():
 def test_recharge_item_order_is_charge_window_then_charger_type_then_durations():
     ids = [n.id for n in walk(layout.build_layout("https://t/{z}/{x}/{y}.png", "osm")) if getattr(n, "id", None)]
     assert ids.index("charge-window") < ids.index("chargers") < ids.index("charge-min-dc100")
+
+
+def test_trip_tab_is_an_accordion_with_itinerary_and_charge_items():
+    acc = next(n for n in walk(layout.build_layout("https://t/{z}/{x}/{y}.png", "osm")) if getattr(n, "id", None) == "trip-accordion")
+    assert [item.title for item in acc.children] == ["Itinéraire", "Charge"] and acc.always_open is True
+    assert set(acc.active_item) == set(layout.TRIP_OPEN)
