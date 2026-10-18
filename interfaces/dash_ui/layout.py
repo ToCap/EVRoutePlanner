@@ -33,11 +33,11 @@ def _group(label, control, unit=None):
     return dbc.InputGroup(items, className="mb-2")
 
 
-def _percent_slider(id_, label, value, lo=0):
-    """Percentage slider (from `lo`) with an always-visible value tooltip."""
+def _percent_slider(id_, label, value):
+    """Percentage slider with an always-visible value tooltip."""
     return html.Div([
         html.Label(label, htmlFor=id_, className="form-label mb-5"),
-        dcc.Slider(id=id_, min=lo, max=100, step=1, value=value, marks={v: str(v) for v in (0, 25, 50, 75, 100) if v >= lo},
+        dcc.Slider(id=id_, min=0, max=100, step=1, value=value, marks={v: str(v) for v in (0, 25, 50, 75, 100)},
                    allow_direct_input=False, tooltip={"placement": "top", "always_visible": True, "template": "{value} %", "style": {"whiteSpace": "nowrap"}}),
     ], className="mb-3")
 
@@ -48,6 +48,14 @@ def _range_slider(id_, label, value):
         html.Label(label, htmlFor=id_, className="form-label mb-2"),
         dcc.RangeSlider(id=id_, min=0, max=100, step=1, value=value, marks={v: str(v) for v in (0, 25, 50, 75, 100)},
                         allowCross=False, pushable=1),
+    ], className="mb-3")
+
+
+def _input_slider(id_, label, value, lo=0):
+    """Percentage slider from `lo`; the value is shown in the input box at its end (no tooltip)."""
+    return html.Div([
+        html.Label(label, htmlFor=id_, className="form-label mb-2"),
+        dcc.Slider(id=id_, min=lo, max=100, step=1, value=value, marks={v: str(v) for v in range(lo, 101, 10)}),
     ], className="mb-3")
 
 
@@ -103,7 +111,7 @@ def tab_energy():
         dbc.Accordion([
             _accordion_item("Batterie", "battery",
                             _group("Capacité nominale", _number("battery-kwh", DEFAULTS["battery_kwh"], 1, 300), "kWh"),
-                            _percent_slider("battery-health", "Santé de la batterie", DEFAULTS["battery_health_pct"], lo=50)),
+                            _input_slider("battery-health", "Santé de la batterie", DEFAULTS["battery_health_pct"], lo=50)),
             _accordion_item(
                 "Recharge", "recharge",
                 html.Label("Type de recharge", htmlFor="chargers", className="form-label"),

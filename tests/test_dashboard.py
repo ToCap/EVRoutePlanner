@@ -271,4 +271,5 @@ def test_battery_health_scales_the_real_capacity_and_roundtrips_through_the_url(
 def test_battery_item_has_a_health_slider_defaulting_to_100():
     nodes = {getattr(n, "id", None): n for n in walk(layout.build_layout("https://t/{z}/{x}/{y}.png", "osm"))}
     slider = nodes["battery-health"]
+    assert getattr(slider, "tooltip", None) is None and getattr(slider, "allow_direct_input", None) is not False  # value shown in the input box, not a tooltip
     assert type(slider).__name__ == "Slider" and slider.value == 100 and slider.min == 50 and slider.max == 100
