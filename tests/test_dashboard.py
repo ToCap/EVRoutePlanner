@@ -273,3 +273,8 @@ def test_battery_item_has_a_health_slider_defaulting_to_100():
     slider = nodes["battery-health"]
     assert getattr(slider, "tooltip", None) is None and getattr(slider, "allow_direct_input", None) is not False  # value shown in the input box, not a tooltip
     assert type(slider).__name__ == "Slider" and slider.value == 100 and slider.min == 50 and slider.max == 100
+
+
+def test_recharge_item_order_is_charge_window_then_charger_type_then_durations():
+    ids = [n.id for n in walk(layout.build_layout("https://t/{z}/{x}/{y}.png", "osm")) if getattr(n, "id", None)]
+    assert ids.index("charge-window") < ids.index("chargers") < ids.index("charge-min-dc100")

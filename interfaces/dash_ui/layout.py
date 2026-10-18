@@ -114,11 +114,11 @@ def tab_energy():
                             _input_slider("battery-health", "Santé de la batterie", DEFAULTS["battery_health_pct"], lo=50)),
             _accordion_item(
                 "Recharge", "recharge",
+                _range_slider("charge-window", "Niveau de charge", DEFAULTS["charge_window"]),
                 html.Label("Type de recharge", htmlFor="chargers", className="form-label"),
                 dcc.Dropdown(id="chargers", options=charger_options(), value=DEFAULTS["chargers"], multi=True, clearable=True,
                              placeholder="Tous les types (aucun filtre)", className="mb-2"),
                 html.P("Les bornes non cochées sont écartées.", className="small text-muted"),
-                _range_slider("charge-window", "Niveau de charge", DEFAULTS["charge_window"]),
                 html.P("Durée du niveau bas au niveau haut, par chargeur.", className="small text-muted mb-2"),
                 *[_group(html.Span(level.label, title=level.description),
                          _number(charge_min_id(level.id), None, 0, 1440, placeholder="facultatif",
