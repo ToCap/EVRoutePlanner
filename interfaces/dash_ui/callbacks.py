@@ -53,7 +53,7 @@ def compute(service: TripService, trigger: str | None, values: dict, search: str
 
 def refresh(service: TripService, key: str | None):
     """Renders all panels from the current state; returns a dict per output + polling stop."""
-    empty = {"route": [], "markers": [], "status": [], "cards": no_update, "graph": ui.charge_figure(),
+    empty = {"route": [], "markers": [], "status": [], "summary": no_update, "cards": no_update, "graph": ui.charge_figure(),
              "detail": [], "stations": [], "poll_disabled": True}
     if not key:
         return empty
@@ -66,7 +66,7 @@ def refresh(service: TripService, key: str | None):
     requested = entry.max_detour_km > 0
     return {
         "route": ui.route_layers(data), "markers": ui.marker_layers(data),
-        "status": ui.banners(entry, data), "cards": ui.scenario_cards(data, entry.report.route.duration_min),
+        "status": ui.banners(entry, data), "summary": ui.trip_summary(data, entry.report.route.duration_min), "cards": ui.scenario_cards(data),
         "graph": ui.charge_figure(data), "detail": ui.detail_table(data),
         "stations": ui.stations_table(data.get("charging"), requested),
         "poll_disabled": entry.state != REFINING,
@@ -131,13 +131,13 @@ def register(app, service: TripService) -> None:
 
     @app.callback(
         Output("route-layer", "children"), Output("markers-layer", "children"), Output("status-area", "children"),
-        Output("scenario-cards", "children"), Output("charge-graph", "figure"), Output("detail-table", "children"),
+        Output("trip-summary", "children"), Output("scenario-cards", "children"), Output("charge-graph", "figure"), Output("detail-table", "children"),
         Output("stations-table", "children"), Output("poll", "disabled"), Output("refine-badge", "style"),
         Input("trip-key", "data"), Input("poll", "n_intervals"),
     )
     def on_refresh(key, _n):
         r = refresh(service, key)
-        return (r["route"], r["markers"], r["status"], r["cards"], r["graph"], r["detail"], r["stations"], r["poll_disabled"],
+        return (r["route"], r["markers"], r["status"], r["summary"], r["cards"], r["graph"], r["detail"], r["stations"], r["poll_disabled"],
                 BADGE_HIDDEN if r["poll_disabled"] else BADGE_SHOWN)
 
     @app.callback(Output("map", "bounds"), Input("trip-key", "data"), prevent_initial_call=True)

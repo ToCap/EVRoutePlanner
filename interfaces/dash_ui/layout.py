@@ -187,15 +187,14 @@ def map_view(tile_url: str, attribution: str):
 def routes_panel():
     return html.Div([
         html.Div(id="status-area"),
-        dbc.Row([
-            dbc.Col(html.Div(id="scenario-cards"), md=4),
-            dbc.Col(dbc.Tabs([
-                dbc.Tab(dcc.Graph(id="charge-graph", figure=charge_figure(), style={"height": "calc(34vh - 90px)", "minHeight": "180px"},
-                                  config={"displaylogo": False}), label="Charge restante", tab_id="t-charge"),
-                dbc.Tab(html.Div(id="detail-table", className="pt-2"), label="Détail par tranche", tab_id="t-detail"),
-                dbc.Tab(html.Div(id="stations-table", className="pt-2"), label="Bornes de recharge", tab_id="t-stations"),
-            ], active_tab="t-charge"), md=8),
-        ]),
+        dbc.Tabs([
+            dbc.Tab(html.Div([html.Div(id="trip-summary"), html.Div(id="scenario-cards")], className="pt-2"),
+                    label="Trajet calculé", tab_id="t-trip"),
+            dbc.Tab(dcc.Graph(id="charge-graph", figure=charge_figure(), style={"height": "calc(34vh - 90px)", "minHeight": "180px"},
+                              config={"displaylogo": False}), label="Charge restante", tab_id="t-charge"),
+            dbc.Tab(html.Div(id="detail-table", className="pt-2"), label="Détail par tranche", tab_id="t-detail"),
+            dbc.Tab(html.Div(id="stations-table", className="pt-2"), label="Bornes de recharge", tab_id="t-stations"),
+        ], active_tab="t-trip"),
     ], className="p-2")
 
 

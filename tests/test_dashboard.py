@@ -167,7 +167,7 @@ def test_interrupted_trip_shows_alert_and_stop_markers():
     key, *_ = callbacks.compute(svc, "compute-btn", VALUES, "", None)
     r = callbacks.refresh(svc, key)
     assert sum("interrompu" in str(b) for b in r["status"]) == 1  # a single alert for the 3 scenarios
-    assert len(r["markers"]) >= 1 and "interrompu" in str(r["cards"])
+    assert len(r["markers"]) >= 1 and "interrompu" in str(r["cards"]) and "km" in str(r["summary"])
 
 
 def test_charging_panel_states():
@@ -271,6 +271,15 @@ def test_battery_health_scales_the_real_capacity_and_roundtrips_through_the_url(
 def test_battery_item_has_a_health_slider_defaulting_to_100():
     nodes = {getattr(n, "id", None): n for n in walk(layout.build_layout("https://t/{z}/{x}/{y}.png", "osm"))}
     slider = nodes["battery-health"]
+
+
+def test_results_in_one_tab_block_trip_first():
+    """Summary and the three scenario cards live in the first results tab."""
+    nodes = list(walk(layout.build_layout("https://t/{z}/{x}/{y}.png", "osm")))
+    tabs = next(n for n in nodes if getattr(n, "active_tab", None) == "t-trip")
+    assert tabs.children[0].label == "Trajet calculé"
+    ids = {getattr(n, "id", None) for n in walk(tabs.children[0])}
+    assert {"trip-summary", "scenario-cards"} <= ids
 
 
 def test_compute_button_pinned_outside_scrolling_tabs():

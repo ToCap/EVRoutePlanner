@@ -81,21 +81,27 @@ def banners(entry: TripEntry, data: dict) -> list:
     return out
 
 
-def scenario_cards(data: dict, duration_min: float) -> list:
-    cards = [html.Div(
+def trip_summary(data: dict, duration_min: float) -> html.Div:
+    """Distance, duration and road-type breakdown of the trip."""
+    return html.Div(
         [html.Strong(f"{data['trip_km']:.1f} km"), html.Span(f" · {duration_min:.0f} min (OSRM)", className="text-muted"),
          html.Div(" · ".join(f"{b['type']} {b['km']:.1f} km" for b in data["breakdown"]), className="small text-muted")],
-        className="mb-2")]
+        className="mb-2")
+
+
+def scenario_cards(data: dict) -> list:
+    """One card per scenario, one column each (stacked on narrow screens)."""
+    cols = []
     for s in data["scenarios"]:
         status = (dbc.Badge("arrivée", color="success") if s["completed"]
                   else dbc.Badge(f"interrompu km {s['alert']['km']}", color="danger"))
-        cards.append(dbc.Card(dbc.CardBody([
+        cols.append(dbc.Col(dbc.Card(dbc.CardBody([
             html.Div([html.Span("● ", style={"color": s["color"]}), html.Strong(s["label"]), " ", status]),
             html.Div(f"{s['total_km']:.1f} km · {s['total_kwh']:.1f} kWh"
                      + (f" · {s['avg_kwh_per_100km']:.1f} kWh/100" if s["avg_kwh_per_100km"] is not None else ""), className="small"),
             html.Div(f"Charge finale : {s['final_soc']:.1f} % ({s['final_kwh']:.1f} kWh)", className="small"),
-        ], className="py-1 px-2"), className="mb-1"))
-    return cards
+        ], className="py-1 px-2"), className="mb-1"), xs=12, md=4))
+    return [dbc.Row(cols, className="g-2")]
 
 
 def charge_figure(data: dict | None = None) -> go.Figure:
