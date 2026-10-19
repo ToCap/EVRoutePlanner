@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 from dash import html
 
 from ev_trip.application.jobs import DONE, FAILED, REFINING, TripEntry
+from ev_trip.application.trip import route_energy_kwh
 
 
 def route_layers(data: dict) -> list:
@@ -133,8 +134,28 @@ def scenario_cards(data: dict) -> list:
     return [dbc.Row(cols, className="g-2")]
 
 
-def charge_figure(data: dict | None = None) -> go.Figure:
+def alt_route_layer(data: dict) -> dl.Polyline:
+    """The other profile's route: grey and dashed, under the selected one."""
+    points = [p for s in data["route_slices"] for p in s["points"]]
+    return dl.Polyline(positions=points, color="#888", weight=4, opacity=0.8, dashArray="8 8")
+
+
+def profile_options(entry: TripEntry) -> list[dict]:
+    """Profile buttons with the duration and energy of each route."""
+    options = []
+    for value, label in (("fast", "Rapide"), ("eco", "Consommation")):
+        report = entry.report_for(value)
+        kwh = route_energy_kwh(report, report.simulation.temp_c)
+        options.append({"label": f"{label} · {report.route.duration_min:.0f} min · {kwh:.0f} kWh", "value": value})
+    return options
+
+
+def charge_figure(data: dict | None = None, other: dict | None = None) -> go.Figure:
     fig = go.Figure()
+    if data and other:  # mean scenario of the other profile, for comparison
+        ref = other["scenarios"][len(other["scenarios"]) // 2]
+        fig.add_scatter(x=[p["x"] for p in ref["chart"]], y=[p["y"] for p in ref["chart"]], mode="lines",
+                        name="Autre profil (moyenne)", line={"color": "#aaa", "dash": "dot"})
     if data:
         for s in data["scenarios"]:
             fig.add_scatter(x=[p["x"] for p in s["chart"]], y=[p["y"] for p in s["chart"]], mode="lines+markers",

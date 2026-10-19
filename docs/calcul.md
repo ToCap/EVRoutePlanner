@@ -4,6 +4,13 @@
 
 geocoding (Nominatim) → route with steps (OSRM) → road sections → road type per section (Overpass) → slices of at most 10 km → simulation in 3 scenarios.
 
+## Route profiles
+
+`osrm_routes` requests up to 3 OSRM alternatives. Near-identical routes (distance and duration within 0.5 %) are merged, each remaining route gets a first estimate, then `choose_profiles` picks:
+- **fast**: shortest duration;
+- **consumption**: least energy (mean scenario, whole route, independent of the battery) among routes at most `eco_max_extra_duration_pct` (15 %) slower than the fast one.
+`run_trip_profiles` returns both (`ProfileReports`, `same` when one route wins both); only the selected routes are refined. The public OSRM server may return a single alternative: both profiles are then the same route.
+
 ## Road sections and sampling
 
 OSRM returns the route **and its steps** (road name / reference). Consecutive steps on the same road ("A 13", "A13", "a-13") form one **section**.

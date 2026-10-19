@@ -140,6 +140,9 @@ def tab_configuration():
         html.H6("Calcul du trajet", className="mt-3"),
         dbc.Switch(id="use-overpass", label="Type de route via OpenStreetMap (plus précis, plus lent)", value=DEFAULTS["use_overpass"]),
         html.P("Désactivé : type de route estimé d'après la vitesse moyenne OSRM.", className="small text-muted"),
+        html.H6("Profil consommation", className="mt-3"),
+        _group(html.Span("Écart de durée max", title="Durée maximale au-delà du profil rapide"),
+               _number("eco-extra", DEFAULTS["eco_extra_pct"], 0, 100), "%"),
     ])
 
 
@@ -193,6 +196,12 @@ def map_view(tile_url: str, attribution: str):
 
 def routes_panel():
     return html.Div([
+        html.Div([
+            dbc.RadioItems(id="profile", options=[{"label": "Rapide", "value": "fast"}, {"label": "Consommation", "value": "eco"}],
+                           value=DEFAULTS["profile"], inline=True, className="btn-group", inputClassName="btn-check",
+                           labelClassName="btn btn-outline-primary btn-sm", labelCheckedClassName="active"),
+            html.Span(id="profile-note", className="small text-muted"),
+        ], className="mb-2"),
         dbc.Tabs([
             dbc.Tab(html.Div([html.Div(id="status-area"), html.Div(id="trip-summary"), html.Div(id="scenario-cards")], className="pt-2"),
                     label="Trajet calculé", tab_id="t-trip"),

@@ -142,6 +142,9 @@ class ConsumptionConfig:
     fallback_urban_max_kmh: float = 45.0
     fallback_motorway_min_kmh: float = 88.0
 
+    # Consumption route profile: accepted duration gap (%) over the fastest route
+    eco_max_extra_duration_pct: float = 15.0
+
     # Charging stations (search, scoring)
     charging: ChargingConfig = field(default_factory=ChargingConfig)
 
@@ -156,6 +159,8 @@ class ConsumptionConfig:
                 raise ValueError(f"Fourchette invalide pour « {road_type} » : il faut 0 < basse <= haute.")
             ranges[road_type] = (low, high)
         self.consumption_range_kwh_per_100km = ranges
+        if self.eco_max_extra_duration_pct < 0:
+            raise ValueError("eco_max_extra_duration_pct doit être >= 0.")
         if self.refine_step_km <= 0:
             raise ValueError("refine_step_km doit être > 0.")
         if isinstance(self.charging, dict):

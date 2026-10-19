@@ -9,16 +9,18 @@ from ev_trip.domain.errors import RoadClassificationError
 from ev_trip.domain.geo import resample
 from ev_trip.domain.models import MicroSegment, Point, Route, Slice, VehicleParams
 from ev_trip.domain.ports import GeocodeFn, RoadClassifier, RouteFn
+from ev_trip.domain.consumption import slice_energy_kwh
+from ev_trip.domain.route_profiles import ProfileReports, choose_profiles, distinct_indices
 from ev_trip.domain.road_classification import classify_by_speed
 from ev_trip.domain.sampling import CoarsePlan, needs_refinement, plan_coarse, plan_fine
 from ev_trip.domain.simulation import simulate_all
 from ev_trip.domain.slicing import build_slices, smooth_types
 from ev_trip.domain.trip_report import TripReport
 from ev_trip.providers.nominatim import geocode
-from ev_trip.providers.osrm import osrm_route
+from ev_trip.providers.osrm import osrm_route, osrm_routes
 from ev_trip.providers.overpass import OverpassRoadClassifier
 
-__all__ = ["TripReport", "plan_slices", "refine_trip", "run_trip"]
+__all__ = ["ProfileReports", "TripReport", "plan_slices", "refine_trip", "run_trip", "run_trip_profiles"]
 
 
 def _plan_grid(
@@ -84,7 +86,15 @@ def run_trip(
     if classifier is None and use_overpass:
         classifier = OverpassRoadClassifier()
 
-    route = route_fn(geocode_fn(origin), geocode_fn(destination))
+    report = _estimate(origin, destination, route_fn(geocode_fn(origin), geocode_fn(destination)), temp_c, vehicle, cfg, classifier)
+    return refine_trip(report, classifier) if refine and report.refinable else report
+
+
+def _estimate(
+    origin: str, destination: str, route: Route, temp_c: float, vehicle: VehicleParams, cfg: ConsumptionConfig,
+    classifier: RoadClassifier | None,
+) -> TripReport:
+    """First estimate of one route (one Overpass point per road section)."""
     coarse: CoarsePlan | None = None
     precision = "fine"
     if route.steps:
@@ -95,8 +105,44 @@ def run_trip(
         slices, warnings = _plan_grid(route, cfg, classifier)
 
     sims = simulate_all(slices, vehicle, temp_c, cfg)
-    report = TripReport(origin, destination, route, slices, sims, warnings, cfg, precision, coarse)
-    return refine_trip(report, classifier) if refine and report.refinable else report
+    return TripReport(origin, destination, route, slices, sims, warnings, cfg, precision, coarse)
+
+
+def route_energy_kwh(report: TripReport, temp_c: float) -> float:
+    """Mean-scenario energy of the whole route (battery-independent: ranks routes, not interrupted runs)."""
+    return sum(slice_energy_kwh(s.length_km, s.road_type, temp_c, report.config) for s in report.slices)
+
+
+def run_trip_profiles(
+    origin: str,
+    destination: str,
+    temp_c: float,
+    vehicle: VehicleParams,
+    cfg: ConsumptionConfig | None = None,
+    *,
+    geocode_fn: GeocodeFn = geocode,
+    routes_fn: Callable[..., list[Route]] = osrm_routes,
+    classifier: RoadClassifier | None = None,
+    use_overpass: bool = True,
+    refine: bool = True,
+) -> ProfileReports[TripReport]:
+    """Fast route (shortest duration) and consumption route (least energy within `eco_max_extra_duration_pct` of it).
+
+    The OSRM alternatives are ranked on their first estimate; `refine=False` returns those estimates.
+    """
+    cfg = cfg or ConsumptionConfig()
+    if classifier is None and use_overpass:
+        classifier = OverpassRoadClassifier()
+
+    routes = routes_fn(geocode_fn(origin), geocode_fn(destination))
+    routes = [routes[i] for i in distinct_indices([(r.distance_km, r.duration_min) for r in routes])]
+    reports = [_estimate(origin, destination, r, temp_c, vehicle, cfg, classifier) for r in routes]
+    fast_i, eco_i = choose_profiles([(r.route.duration_min, route_energy_kwh(r, temp_c)) for r in reports], cfg.eco_max_extra_duration_pct)
+    fast, eco = reports[fast_i], reports[eco_i]
+    if refine:
+        fast = refine_trip(fast, classifier) if fast.refinable else fast
+        eco = fast if eco_i == fast_i else (refine_trip(eco, classifier) if eco.refinable else eco)
+    return ProfileReports(fast, eco)
 
 
 def refine_trip(

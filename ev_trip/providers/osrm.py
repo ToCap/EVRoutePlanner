@@ -33,15 +33,34 @@ def _parse_steps(best: dict, polyline_km: float) -> list[RouteStep] | None:
     return steps
 
 
-def osrm_route(
+def _build_route(item: dict) -> Route:
+    """One OSRM route object -> `Route`."""
+    coords = [Point(lat=c[1], lon=c[0]) for c in item["geometry"]["coordinates"]]
+    durations: list[float] = []
+    for leg in item.get("legs", []):
+        durations.extend(leg.get("annotation", {}).get("duration", []))
+    return Route(
+        coordinates=coords,
+        distance_km=item["distance"] / 1000.0,
+        duration_min=item["duration"] / 60.0,
+        durations_s=durations if len(durations) == len(coords) - 1 else None,
+        steps=_parse_steps(item, cumulative_km(coords)[-1]) if len(coords) > 1 else None,
+    )
+
+
+def osrm_routes(
     origin: Point,
     destination: Point,
     session: requests.Session | None = None,
     base_url: str = OSRM_URL,
     timeout: float = 60.0,
-) -> Route:
+    alternatives: int = 3,
+) -> list[Route]:
+    """Fastest route first, then up to `alternatives` OSRM alternatives."""
     url = f"{base_url}/route/v1/driving/{origin.lon},{origin.lat};{destination.lon},{destination.lat}"
     params = {"overview": "full", "geometries": "geojson", "annotations": "duration", "steps": "true"}
+    if alternatives > 0:
+        params["alternatives"] = str(alternatives)
     http = session or requests
     try:
         resp = http.get(url, params=params, headers={"User-Agent": USER_AGENT}, timeout=timeout)
@@ -52,19 +71,17 @@ def osrm_route(
 
     if data.get("code") != "Ok" or not data.get("routes"):
         raise RoutingError(f"Aucun itinéraire trouvé ({data.get('code', 'réponse invalide')}).")
+    return [_build_route(item) for item in data["routes"]]
 
-    best = data["routes"][0]
-    coords = [Point(lat=c[1], lon=c[0]) for c in best["geometry"]["coordinates"]]
-    durations: list[float] = []
-    for leg in best.get("legs", []):
-        durations.extend(leg.get("annotation", {}).get("duration", []))
-    return Route(
-        coordinates=coords,
-        distance_km=best["distance"] / 1000.0,
-        duration_min=best["duration"] / 60.0,
-        durations_s=durations if len(durations) == len(coords) - 1 else None,
-        steps=_parse_steps(best, cumulative_km(coords)[-1]) if len(coords) > 1 else None,
-    )
+
+def osrm_route(
+    origin: Point,
+    destination: Point,
+    session: requests.Session | None = None,
+    base_url: str = OSRM_URL,
+    timeout: float = 60.0,
+) -> Route:
+    return osrm_routes(origin, destination, session, base_url, timeout, alternatives=0)[0]
 
 
 def osrm_path(
