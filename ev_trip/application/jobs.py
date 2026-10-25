@@ -8,7 +8,7 @@ import threading
 from dataclasses import asdict, dataclass, field, replace
 from typing import Callable, Protocol
 
-from ev_trip.application.charging import plan_charging
+from ev_trip.application.charging import find_stations, plan_charging
 from ev_trip.application.trip import refine_trip, run_trip, run_trip_profiles
 from ev_trip.domain.charging import ChargingPlan, TariffTable
 from ev_trip.domain.config import CHARGER_LEVELS, DEFAULT_CHARGERS, DEFAULT_SCENARIO, SCENARIOS, ConsumptionConfig
@@ -170,6 +170,7 @@ class TripService:
         run_profiles: Callable[..., ProfileReports] | None = None,
         refine: Callable[[TripReport], TripReport] = refine_trip,
         plan: Callable[..., ChargingPlan] = plan_charging,
+        find_pool: Callable[..., list] = find_stations,
     ) -> None:
         if run_trip is None and run_profiles is None:  # production: two profiles; an injected `run_trip` means one route
             run_profiles = run_trip_profiles
@@ -180,6 +181,7 @@ class TripService:
         self.run_profiles = run_profiles
         self.refine = refine
         self.plan = plan
+        self.find_pool = find_pool
 
     def get(self, key: str) -> TripEntry | None:
         return self.store.get(key)
@@ -216,10 +218,12 @@ class TripService:
             self.runner(lambda: self.run_job(key))
         return key, entry
 
-    def _plan(self, entry: TripEntry, report: TripReport) -> tuple[ChargingPlan | None, list[str]]:
-        """Stations of one route; (None, errors) if the search fails."""
-        # the timed charge profile is passed only when set: other plans keep their usual call
+    def _plan(self, entry: TripEntry, report: TripReport, pool: list | None = None) -> tuple[ChargingPlan | None, list[str]]:
+        """Stations of one route (from the shared `pool` if any); (None, errors) if the search fails."""
+        # the timed charge profile and the pool are passed only when set: other plans keep their usual call
         timed = {"charge_window": entry.charge_window, "charge_minutes": dict(entry.charge_minutes)} if entry.charge_minutes else {}
+        if pool is not None:
+            timed["pool"] = pool
         try:
             return self.plan(report, entry.max_detour_km, tariffs=self.tariffs(), chargers=entry.chargers, **timed), []
         except Exception as exc:
@@ -249,14 +253,29 @@ class TripService:
         except Exception as exc:  # the task must never stop without publishing its state
             log.exception("Affinage du trajet impossible")
             errors.append(f"affinage : {exc}")
-        changes: dict = {}
+        changes: dict = {"report": report, "eco_report": eco, "refined": refined}
         if entry.max_detour_km > 0:
-            profile = entry.profile_of(entry.planned)
-            plan, plan_errors = self._plan(entry, eco if profile == "eco" else report)
-            errors += plan_errors
-            if plan is not None:
-                changes["eco_charging" if profile == "eco" else "charging"] = plan
-        self._finish(key, entry, errors, report=report, eco_report=eco, refined=refined, **changes)
+            pool = self._pool(entry, report, eco)
+            first = entry.profile_of(entry.planned)
+            order = [first, *(p for p in (("fast", "eco") if eco is not None else ("fast",)) if p != first)]
+            for n, profile in enumerate(order):  # the displayed profile first: its stations appear while the other is searched
+                plan, plan_errors = self._plan(entry, eco if profile == "eco" else report, pool)
+                errors += plan_errors
+                if plan is not None:
+                    changes["eco_charging" if profile == "eco" else "charging"] = plan
+                if n < len(order) - 1:
+                    self.store.set(key, replace(self.store.get(key) or entry, **changes))
+        self._finish(key, entry, errors, **changes)
+
+    def _pool(self, entry: TripEntry, report: TripReport, eco: TripReport | None) -> list | None:
+        """Stations near both routes, searched once (None: one route, or search failed: each plan searches its own)."""
+        if eco is None:
+            return None
+        try:
+            return self.find_pool([report, eco], entry.max_detour_km)
+        except Exception:
+            log.exception("Recherche des bornes (toutes routes) impossible")
+            return None
 
     def ensure_charging(self, key: str, profile: str) -> None:
         """Starts the station search of a profile not searched yet (one task per trip and profile)."""

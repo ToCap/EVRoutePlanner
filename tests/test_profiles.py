@@ -1,7 +1,7 @@
 """Route profiles in the service: one entry per trip, stations searched per profile on demand."""
 import pytest
 
-from ev_trip.application.jobs import DONE, REFINING, MemoryStore, TripRequest, TripService
+from ev_trip.application.jobs import DONE, FAILED, REFINING, MemoryStore, TripRequest, TripService
 from ev_trip.domain.models import Route, Slice, VehicleParams
 from ev_trip.domain.route_profiles import ProfileReports
 from ev_trip.domain.simulation import simulate_all
@@ -19,10 +19,23 @@ def _request(**kw):
     return TripRequest("Paris", "Caen", 15.0, 52.0, 90.0, 10.0, False, 5.0, **kw)
 
 
-def _service(profiles, plans):
-    jobs = []
-    svc = TripService(MemoryStore(), runner=jobs.append, run_profiles=lambda *a, **k: profiles,
-                      refine=lambda r: r, plan=lambda report, km, **k: plans.append(report) or f"plan{len(plans)}")
+def _service(profiles, plans, pools=None, fail_once=False):
+    jobs, failed = [], []
+
+    def plan(report, km, **k):
+        if fail_once and report.route.duration_min == 215 and not failed:
+            failed.append(1)
+            raise RuntimeError("OSRM KO")
+        plans.append((report.route.duration_min, k.get("pool")))
+        return f"plan{len(plans)}"
+
+    def find_pool(reports, km):
+        if pools is not None:
+            pools.append(([r.route.duration_min for r in reports], km))
+        return ["st1", "st2"]
+
+    svc = TripService(MemoryStore(), runner=jobs.append, run_profiles=lambda *a, **k: profiles, refine=lambda r: r, plan=plan,
+                      find_pool=find_pool)
     return svc, jobs
 
 
@@ -42,32 +55,54 @@ def test_same_route_keeps_a_single_report():
     assert entry.eco_report is None and entry.report_for("eco") is entry.report and entry.profile_of("eco") == "fast"
 
 
-def test_stations_are_searched_for_the_first_profile_then_on_demand():
-    fast, eco, plans = _report(200), _report(215), []
-    svc, jobs = _service(ProfileReports(fast, eco), plans)
+def test_stations_are_searched_once_for_both_routes_and_planned_per_profile():
+    fast, eco, plans, pools = _report(200), _report(215), [], []
+    svc, jobs = _service(ProfileReports(fast, eco), plans, pools)
     key, entry = svc.start(_request(profile="fast"))
-    assert entry.report.route.duration_min == 200 and entry.eco_report.route.duration_min == 215 and entry.state == REFINING and len(jobs) == 1
-    jobs.pop()()  # first task: fast profile
-    entry = svc.get(key)
-    assert [r.route.duration_min for r in plans] == [200] and entry.charging == "plan1" and entry.charging_for("eco") is None and entry.state == DONE
-    svc.ensure_charging(key, "eco")
-    assert svc.get(key).state == REFINING and len(jobs) == 1
-    svc.ensure_charging(key, "eco")  # one task per trip and profile
+    assert entry.report.route.duration_min == 200 and entry.eco_report.route.duration_min == 215 and entry.state == REFINING
     assert len(jobs) == 1
     jobs.pop()()
     entry = svc.get(key)
-    assert [r.route.duration_min for r in plans] == [200, 215] and entry.charging_for("eco") == "plan2" and entry.charging_for("fast") == "plan1"
-    assert entry.state == DONE and entry.pending == 0
-    svc.ensure_charging(key, "eco")  # already known
+    assert pools == [([200, 215], 5.0)]  # one pool for both routes
+    assert plans == [(200, ["st1", "st2"]), (215, ["st1", "st2"])]  # displayed profile first, same pool
+    assert entry.charging == "plan1" and entry.charging_for("eco") == "plan2" and entry.state == DONE and entry.pending == 0
+    svc.ensure_charging(key, "eco")  # already known: nothing to start
     assert not jobs
 
 
-def test_first_profile_eco_searches_eco_stations_first():
+def test_first_profile_eco_is_planned_first():
     fast, eco, plans = _report(200), _report(215), []
     svc, jobs = _service(ProfileReports(fast, eco), plans)
     key, _ = svc.start(_request(profile="eco"))
     jobs.pop()()
-    assert [r.route.duration_min for r in plans] == [215] and svc.get(key).charging_for("eco") == "plan1" and svc.get(key).charging is None
+    assert [minutes for minutes, _ in plans] == [215, 200]
+    assert svc.get(key).charging_for("eco") == "plan1" and svc.get(key).charging == "plan2"
+
+
+def test_single_route_has_no_pool_and_a_failed_profile_is_retried_on_selection():
+    fast, plans = _report(200), []
+    svc, jobs = _service(ProfileReports(fast, fast), plans)
+    key, _ = svc.start(_request())
+    jobs.pop()()
+    assert plans == [(200, None)]  # one route: the plan does its own search
+    fast, eco, plans = _report(200), _report(215), []
+    svc, jobs = _service(ProfileReports(fast, eco), plans, fail_once=True)
+    key, _ = svc.start(_request())
+    jobs.pop()()
+    entry = svc.get(key)
+    assert entry.charging == "plan1" and entry.charging_for("eco") is None and entry.state == FAILED
+    svc.ensure_charging(key, "eco")  # the failed profile is searched again when selected
+    jobs.pop()()
+    assert svc.get(key).charging_for("eco") == "plan2" and svc.get(key).state == DONE
+
+
+def test_pool_failure_falls_back_to_one_search_per_route():
+    fast, eco, plans = _report(200), _report(215), []
+    svc, jobs = _service(ProfileReports(fast, eco), plans)
+    svc.find_pool = lambda reports, km: (_ for _ in ()).throw(RuntimeError("Overpass KO"))
+    key, _ = svc.start(_request())
+    jobs.pop()()
+    assert plans == [(200, None), (215, None)] and svc.get(key).state == DONE
 
 
 def test_profile_and_eco_gap_in_the_query_string():

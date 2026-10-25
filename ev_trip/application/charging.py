@@ -37,6 +37,22 @@ def osrm_detour(
     return detour_from_via(route, cum, a_km, b_km, via_km, via_min)
 
 
+def find_stations(
+    reports: list[TripReport], max_detour_km: float, *, stations: StationSource | None = None
+) -> list[Station]:
+    """Stations near any of the routes, searched once per route and merged (by id): one pool for all profiles."""
+    if stations is None:
+        from ev_trip.providers.overpass import OverpassStationSource
+
+        stations = OverpassStationSource(cfg=reports[0].config.charging)
+    pool: dict[str, Station] = {}
+    for report in reports:
+        radius = max_detour_km * report.config.charging.corridor_factor
+        for st in stations.find(report.route, radius):
+            pool.setdefault(st.id, st)
+    return list(pool.values())
+
+
 def plan_charging(
     report: TripReport,
     max_detour_km: float,
@@ -48,11 +64,12 @@ def plan_charging(
     chargers: tuple[str, ...] | None = None,
     charge_window: tuple[float, float] | None = None,
     charge_minutes: dict[str, float] | None = None,
+    pool: list[Station] | None = None,
 ) -> ChargingPlan:
-    """Stations ranked by relevance score, with a detour <= `max_detour_km`."""
+    """Stations ranked by relevance score, with a detour <= `max_detour_km`; `pool` = stations already searched (by `find_stations`)."""
     if max_detour_km <= 0:
         raise ValueError("Le détour maximum doit être > 0 km.")
-    if stations is None:
+    if stations is None and pool is None:
         from ev_trip.providers.overpass import OverpassStationSource
 
         stations = OverpassStationSource(cfg=report.config.charging)
@@ -69,7 +86,11 @@ def plan_charging(
     plan = ChargingPlan([], 0, 0, max_detour_km, level)
 
     try:
-        found = stations.find(route, max_detour_km * cc.corridor_factor)
+        radius = max_detour_km * cc.corridor_factor
+        if pool is not None:  # shared pool: keep the stations along this route
+            found = [st for st in pool if nearest_on_route(route, st.point, cum)[1] <= radius]
+        else:
+            found = stations.find(route, radius)
     except (RoadClassificationError, EVTripError) as exc:
         plan.warnings.append(f"Recherche des bornes impossible : {exc}")
         return plan
