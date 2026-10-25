@@ -22,7 +22,7 @@ def charge_min_id(level_id: str) -> str:
 DEFAULTS = {
     "origin": "", "destination": "", "temp_c": 15.0, "battery_kwh": 52.0,
     "start_soc": 90.0, "min_soc": 10.0, "max_detour_km": 5.0, "use_overpass": True, "chargers": list(DEFAULT_CHARGERS),
-    "battery_health_pct": 100, "eco_extra_pct": 15.0, "profile": "fast", "charge_window": [15, 80], **{charge_min_key(level.id): None for level in CHARGER_LEVELS},
+    "battery_health_pct": 100, "eco_extra_pct": 15.0, "eco_exit_variants": 2, "profile": "fast", "charge_window": [15, 80], **{charge_min_key(level.id): None for level in CHARGER_LEVELS},
 }
 _RANGES = {  # field: (label, min, max, required)
     "temp_c": ("Température", -50, 60, True),
@@ -77,6 +77,12 @@ def request_from_values(values: dict) -> TripRequest:
         raise FieldError("Écart de durée : saisir une valeur numérique.", ("eco_extra_pct",)) from None
     if not 0 <= eco_extra <= 100:
         raise FieldError("Écart de durée : la valeur doit être comprise entre 0 et 100 %.", ("eco_extra_pct",))
+    try:
+        exits = int(float(values.get("eco_exit_variants", DEFAULTS["eco_exit_variants"])))
+    except (TypeError, ValueError):
+        raise FieldError("Sorties étudiées : saisir un nombre entier.", ("eco_exit_variants",)) from None
+    if not 0 <= exits <= 2:
+        raise FieldError("Sorties étudiées : la valeur doit être comprise entre 0 et 2.", ("eco_exit_variants",))
     minutes = []
     for level in CHARGER_LEVELS:
         key, raw = charge_min_key(level.id), values.get(charge_min_key(level.id))
@@ -92,7 +98,7 @@ def request_from_values(values: dict) -> TripRequest:
     request = TripRequest(
         origin, destination, numbers["temp_c"], numbers["battery_kwh"], numbers["start_soc"],
         numbers["min_soc"], bool(values.get("use_overpass", True)), numbers["max_detour_km"], chargers,
-        low, high, tuple(minutes), battery_health_pct=health, eco_extra_pct=eco_extra,
+        low, high, tuple(minutes), battery_health_pct=health, eco_extra_pct=eco_extra, eco_exit_variants=exits,
         profile=values.get("profile") or DEFAULTS["profile"],
     )
     request.vehicle()  # same check as the domain (capacity, percentages)
@@ -106,7 +112,7 @@ def to_query(request: TripRequest) -> str:
         "min_soc": f"{request.min_soc:g}", "max_detour_km": f"{request.max_detour_km:g}",
         "use_overpass": "1" if request.use_overpass else "0", "chargers": ",".join(request.chargers),
         "charge_from": f"{request.charge_from_pct:g}", "charge_to": f"{request.charge_to_pct:g}",
-        "battery_health": f"{request.battery_health_pct:g}", "eco_extra": f"{request.eco_extra_pct:g}", "profile": request.profile,
+        "battery_health": f"{request.battery_health_pct:g}", "eco_extra": f"{request.eco_extra_pct:g}", "eco_exit": str(request.eco_exit_variants), "profile": request.profile,
     }
     if request.charge_minutes:
         params["charge_minutes"] = ",".join(f"{level}:{minutes:g}" for level, minutes in request.charge_minutes)
@@ -140,6 +146,11 @@ def from_query(search: str | None) -> dict | None:
             values["eco_extra_pct"] = float(q["eco_extra"])
         except ValueError:
             values["eco_extra_pct"] = q["eco_extra"]  # will be rejected by request_from_values
+    if "eco_exit" in q:
+        try:
+            values["eco_exit_variants"] = int(float(q["eco_exit"]))
+        except ValueError:
+            values["eco_exit_variants"] = q["eco_exit"]  # will be rejected by request_from_values
     if "profile" in q:
         values["profile"] = q["profile"]  # unknown names are rejected by TripRequest
     window = list(DEFAULTS["charge_window"])

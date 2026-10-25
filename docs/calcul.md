@@ -6,10 +6,13 @@ geocoding (Nominatim) → route with steps (OSRM) → road sections → road typ
 
 ## Route profiles
 
-`osrm_routes` requests up to 3 OSRM alternatives. Near-identical routes (distance and duration within 0.5 %) are merged, each remaining route gets a first estimate, then `choose_profiles` picks:
+Candidates, each with a first estimate:
+- the OSRM alternatives (`osrm_routes`, up to 3): OSRM only keeps routes clearly different from the fastest one;
+- **exit variants** (`exit_variants`, at most `eco_exit_variants` = 2): the fast route's last motorway stretch (steps whose `ref` is A/E/M...) is searched for exits (Overpass `highway=motorway_junction`, on the route within 150 m, at least 1 km before the fast exit). A variant follows the fast route up to the exit, then an OSRM route with `exclude=motorway` to the destination (variants more than 30 % longer are dropped). Cost: 1 Overpass request and 1 OSRM request per variant. Only the last 30 km of the motorway stretch are searched. Overpass is retried (4 attempts, one mirror each, `Retry-After` honoured); if it still fails, or without Overpass, only the alternatives are used (warning).
+Near-identical candidates (distance and duration within 0.5 %) are merged, then `choose_profiles` picks:
 - **fast**: shortest duration;
 - **consumption**: least energy (mean scenario, whole route, independent of the battery) among routes at most `eco_max_extra_duration_pct` (15 %) slower than the fast one.
-`run_trip_profiles` returns both (`ProfileReports`, `same` when one route wins both); only the selected routes are refined. The public OSRM server may return a single alternative: both profiles are then the same route.
+`run_trip_profiles` returns both (`ProfileReports`, `same` when one route wins both); only the selected routes are refined. The candidates (distance, duration, kWh, choice) are logged at INFO level.
 
 ## Road sections and sampling
 

@@ -41,6 +41,7 @@ class TripRequest:
     charge_minutes: tuple[tuple[str, float], ...] = ()  # (level id, minutes to go from -> to) of the selected levels
     battery_health_pct: float = 100.0  # state of health: real capacity = nominal x health; charge levels apply to the real one
     eco_extra_pct: float = 15.0  # consumption profile: accepted duration gap (%) over the fastest route
+    eco_exit_variants: int = 2  # consumption profile: motorway exits tried before the fast route's own exit (0-2)
     profile: str = "fast"  # profile shown first (a display choice: not part of the result key)
 
     def __post_init__(self) -> None:
@@ -51,6 +52,8 @@ class TripRequest:
         object.__setattr__(self, "chargers", tuple(c for c in known if c in self.chargers))  # canonical order: same key
         if self.profile not in PROFILES:
             raise ValueError(f"Profil inconnu : {self.profile}.")
+        if not 0 <= self.eco_exit_variants <= 2:
+            raise ValueError("Sorties étudiées : la valeur doit être comprise entre 0 et 2.")
         if self.eco_extra_pct < 0:
             raise ValueError("Écart de durée : la valeur doit être >= 0 %.")
         if not 0 < self.battery_health_pct <= 100:
@@ -182,7 +185,7 @@ class TripService:
         if self.run_profiles is not None:
             profiles = self.run_profiles(
                 request.origin, request.destination, request.temp_c, request.vehicle(),
-                ConsumptionConfig(eco_max_extra_duration_pct=request.eco_extra_pct), use_overpass=request.use_overpass, refine=False,
+                ConsumptionConfig(eco_max_extra_duration_pct=request.eco_extra_pct, eco_exit_variants=request.eco_exit_variants), use_overpass=request.use_overpass, refine=False,
             )
             report, eco = profiles.fast, (None if profiles.same else profiles.eco)
         else:

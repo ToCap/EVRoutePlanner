@@ -143,6 +143,8 @@ def tab_configuration():
         html.H6("Profil consommation", className="mt-3"),
         _group(html.Span("Écart de durée max", title="Durée maximale au-delà du profil rapide"),
                _number("eco-extra", DEFAULTS["eco_extra_pct"], 0, 100), "%"),
+        _group(html.Span("Sorties étudiées", title="Sorties d'autoroute essayées avant celle du trajet rapide (0 à 2)"),
+               _number("eco-exit", DEFAULTS["eco_exit_variants"], 0, 2, step=1)),
     ])
 
 

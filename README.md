@@ -65,6 +65,7 @@ Dependencies only go downward, enforced by `tests/test_architecture.py`.
 
 ## Docs
 
+- [Module specification](SPEC.md)
 - [Architecture](docs/architecture.md)
 - [Computation: sampling, consumption, simulation](docs/calcul.md)
 - [Charging stations](docs/bornes.md)

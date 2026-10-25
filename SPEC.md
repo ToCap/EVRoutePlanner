@@ -44,17 +44,20 @@ plan_slices(route: Route, cfg: ConsumptionConfig, classifier=None) -> tuple[list
 ```python
 plan_charging(report: TripReport, max_detour_km: float, *, tariffs: TariffTable | None = None,
               stations: StationSource | None = None, detour_fn=None, sleep=time.sleep,
-              chargers: tuple[str, ...] | None = None) -> ChargingPlan
+              chargers: tuple[str, ...] | None = None, charge_window: tuple[float, float] | None = None,
+              charge_minutes: dict[str, float] | None = None) -> ChargingPlan
 ```
 
 - `max_detour_km` must be > 0 (`ValueError` otherwise). A station search failure is reported in `plan.warnings`, never raised.
 - `chargers`: ids of `CHARGER_LEVELS` the vehicle accepts (`dc100`, `ac22`, `ac11`, `ac7_4`, `ac3_7`, `ac2_3`). `None`/empty: no filtering.
+- `charge_window`, `charge_minutes`: optional timed charge profile (minutes to go from x % to y % per level id); sets the effective power per level and caps the recharge at y (see `docs/bornes.md`).
 
 ### 3.3 Task manager: `ev_trip.application.jobs`
 
 ```python
 TripRequest(origin, destination, temp_c, battery_kwh, start_soc, min_soc,
-            use_overpass=True, max_detour_km=0.0, chargers=DEFAULT_CHARGERS)  # frozen; .key() = result id
+            use_overpass=True, max_detour_km=0.0, chargers=DEFAULT_CHARGERS,
+            charge_from_pct=15.0, charge_to_pct=80.0, charge_minutes=(), battery_health_pct=100.0)  # frozen; .key() = result id
 TripService(store=None, runner=thread_runner, tariffs=lambda: None, *, run_trip, refine, plan)
 service.start(request) -> (key, TripEntry)   # first estimate now, refinement + stations in the background
 service.get(key) -> TripEntry | None
@@ -68,7 +71,7 @@ service.get(key) -> TripEntry | None
 
 | Type | Invariants |
 |---|---|
-| `VehicleParams(battery_kwh, start_soc_pct, min_soc_pct=10)` | capacity > 0; percentages in [0, 100] (`ValueError`) |
+| `VehicleParams(battery_kwh, start_soc_pct, min_soc_pct=10)` | capacity > 0 (the real one: nominal x `TripRequest.battery_health_pct`); percentages in [0, 100] of that capacity (`ValueError`) |
 | `Route` | coordinates, `distance_km`, `duration_min`, optional `durations_s` and `steps` |
 | `Slice(index, start_km, end_km, road_type)` | length <= `max_slice_km` (10); one road type |
 | `SimulationResult` | `results` = slices actually driven; `completed=False` and an `Alert` if the reserve is reached |
@@ -100,6 +103,7 @@ Surcharge: < -5 °C +35 %, [-5, 0[ +25 %, [0, 10[ +15 %, [10, 15[ +8 %, [15, 25[
 - Price priority: OSM `charge` tag > `fee=no` > operator tariff (`tariffs.json`) > unknown (neutral 50).
 - Charge time uses min(station power, vehicle limit); the vehicle limit is the highest selected AC or DC level.
 - A station is dropped if no selected level matches its type (DC for fast, AC for normal); unknown type is kept.
+- With a timed charge profile, charge time uses the effective power of the highest timed level not above the station power, and the energy added never exceeds the window end y.
 - A station not reachable before the reserve scores 0; one unreachable in the pessimistic scenario is multiplied by 0.75.
 
 ## 6. Acceptance examples (offline tests)

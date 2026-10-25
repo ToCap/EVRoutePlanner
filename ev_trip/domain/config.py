@@ -144,6 +144,8 @@ class ConsumptionConfig:
 
     # Consumption route profile: accepted duration gap (%) over the fastest route
     eco_max_extra_duration_pct: float = 15.0
+    # Consumption route profile: motorway exits tried before the fast route's own exit (0 = OSRM alternatives only, max 2)
+    eco_exit_variants: int = 2
 
     # Charging stations (search, scoring)
     charging: ChargingConfig = field(default_factory=ChargingConfig)
@@ -159,6 +161,8 @@ class ConsumptionConfig:
                 raise ValueError(f"Fourchette invalide pour « {road_type} » : il faut 0 < basse <= haute.")
             ranges[road_type] = (low, high)
         self.consumption_range_kwh_per_100km = ranges
+        if not 0 <= self.eco_exit_variants <= 2:
+            raise ValueError("eco_exit_variants doit être compris entre 0 et 2.")
         if self.eco_max_extra_duration_pct < 0:
             raise ValueError("eco_max_extra_duration_pct doit être >= 0.")
         if self.refine_step_km <= 0:

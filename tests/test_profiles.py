@@ -76,6 +76,12 @@ def test_profile_and_eco_gap_in_the_query_string():
     values = from_query(to_query(request))
     assert values["profile"] == "eco" and values["eco_extra_pct"] == 20.0
     assert request_from_values({**DEFAULTS, "origin": "a", "destination": "b"}).profile == "fast"
+    assert request_from_values({**DEFAULTS, "origin": "a", "destination": "b"}).eco_exit_variants == 2
+    request = request_from_values({**DEFAULTS, "origin": "a", "destination": "b", "eco_exit_variants": 1})
+    assert from_query(to_query(request))["eco_exit_variants"] == 1
+    for bad in (3, -1, "x"):
+        with pytest.raises(FieldError):
+            request_from_values({**DEFAULTS, "origin": "a", "destination": "b", "eco_exit_variants": bad})
     with pytest.raises(FieldError):
         request_from_values({**DEFAULTS, "origin": "a", "destination": "b", "eco_extra_pct": 150})
 
@@ -91,7 +97,7 @@ def test_layout_has_profile_selector_and_eco_gap_field():
                 yield from walk(k)
 
     ids = {getattr(n, "id", None) for n in walk(layout.build_layout("https://t/{z}/{x}/{y}.png", "osm"))}
-    assert {"profile", "profile-note", "eco-extra"} <= ids
+    assert {"profile", "profile-note", "eco-extra", "eco-exit"} <= ids
 
 
 def test_profile_options_and_overlay_helpers():
