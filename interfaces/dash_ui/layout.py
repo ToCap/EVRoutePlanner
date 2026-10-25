@@ -135,16 +135,25 @@ def tab_energy():
 SIDEBAR_WIDTH = "min(400px, 90vw)"
 
 
+CONFIG_OPEN = ["compute", "eco"]  # both themes expanded at load
+
+
 def tab_configuration():
     return html.Div([
-        html.H6("Calcul du trajet", className="mt-3"),
-        dbc.Switch(id="use-overpass", label="Type de route via OpenStreetMap (plus précis, plus lent)", value=DEFAULTS["use_overpass"]),
-        html.P("Désactivé : type de route estimé d'après la vitesse moyenne OSRM.", className="small text-muted"),
-        html.H6("Profil consommation", className="mt-3"),
-        _group(html.Span("Écart de durée max", title="Durée maximale au-delà du profil rapide"),
-               _number("eco-extra", DEFAULTS["eco_extra_pct"], 0, 100), "%"),
-        _group(html.Span("Sorties étudiées", title="Sorties d'autoroute essayées avant celle du trajet rapide (0 à 2)"),
-               _number("eco-exit", DEFAULTS["eco_exit_variants"], 0, 2, step=1)),
+        dbc.Accordion([
+            _accordion_item(
+                "Calcul du trajet", "compute",
+                dbc.Switch(id="use-overpass", label="Type de route via OpenStreetMap (plus précis, plus lent)", value=DEFAULTS["use_overpass"]),
+                html.P("Désactivé : type de route estimé d'après la vitesse moyenne OSRM.", className="small text-muted"),
+            ),
+            _accordion_item(
+                "Profil consommation", "eco",
+                _group(html.Span("Écart de durée max", title="Durée maximale au-delà du profil rapide"),
+                       _number("eco-extra", DEFAULTS["eco_extra_pct"], 0, 100), "%"),
+                _group(html.Span("Sorties étudiées", title="Sorties d'autoroute essayées avant celle du trajet rapide (0 à 2)"),
+                       _number("eco-exit", DEFAULTS["eco_exit_variants"], 0, 2, step=1)),
+            ),
+        ], id="config-accordion", always_open=True, active_item=CONFIG_OPEN, className="mt-3"),
     ])
 
 

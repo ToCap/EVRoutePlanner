@@ -122,3 +122,22 @@ def test_shared_link_follows_the_displayed_profile():
 
     assert with_profile("?origin=Paris&destination=Caen&profile=fast", "eco").endswith("profile=eco")
     assert with_profile("", "eco") is no_update
+
+
+def test_configuration_tab_is_an_accordion_with_one_item_per_theme():
+    import dash_bootstrap_components as dbc
+
+    from interfaces.dash_ui.layout import CONFIG_OPEN, tab_configuration
+
+    def walk(n):
+        yield n
+        kids = getattr(n, "children", None)
+        for k in kids if isinstance(kids, (list, tuple)) else [kids]:
+            if hasattr(k, "to_plotly_json"):
+                yield from walk(k)
+
+    nodes = list(walk(tab_configuration()))
+    accordion = next(n for n in nodes if isinstance(n, dbc.Accordion))
+    assert [i.title for i in accordion.children] == ["Calcul du trajet", "Profil consommation"]
+    assert accordion.always_open is True and set(accordion.active_item) == set(CONFIG_OPEN)
+    assert {"use-overpass", "eco-extra", "eco-exit"} <= {getattr(n, "id", None) for n in nodes}
