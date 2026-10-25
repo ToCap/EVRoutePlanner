@@ -79,13 +79,22 @@ def tab_trip():
     return html.Div([dbc.Accordion(items, id="trip-accordion", always_open=True, active_item=TRIP_OPEN, className="mt-3")])
 
 
+STATIONS_OPEN = ["search"]  # expanded at load; "weights" is a placeholder, collapsed
+
+
 def tab_stations():
     return html.Div([
-        html.H6("Recherche de bornes de recharge", className="mt-3"),
-        _group("Détour max", _number("max-detour", DEFAULTS["max_detour_km"], 0, 50), "km"),
-        html.P("0 = pas de recherche. Les bornes sont notées /100 (détour, besoin, durée de charge, prix).", className="small text-muted"),
-        html.H6("Pondérations de la note", className="mt-3"),
-        html.P("Bientôt : réglage des poids et des tarifs par opérateur depuis l'interface (aujourd'hui : fichiers JSON).", className="small text-muted"),
+        dbc.Accordion([
+            _accordion_item(
+                "Recherche de bornes de recharge", "search",
+                _group("Détour max", _number("max-detour", DEFAULTS["max_detour_km"], 0, 50), "km"),
+                html.P("0 = pas de recherche. Les bornes sont notées /100 (détour, besoin, durée de charge, prix).", className="small text-muted"),
+            ),
+            _accordion_item(
+                "Pondérations de la note", "weights",
+                html.P("Bientôt : réglage des poids et des tarifs par opérateur depuis l'interface (aujourd'hui : fichiers JSON).", className="small text-muted"),
+            ),
+        ], id="stations-accordion", always_open=True, active_item=STATIONS_OPEN, className="mt-3"),
     ])
 
 

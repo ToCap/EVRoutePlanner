@@ -181,3 +181,22 @@ def test_scenario_in_the_query_string_and_the_config_field():
 
     select = next(n for n in walk(layout.tab_configuration()) if getattr(n, "id", None) == "scenario")
     assert select.value == "moyenne" and [o["value"] for o in select.options] == ["optimiste", "moyenne", "pessimiste"]
+
+
+def test_stations_tab_is_an_accordion_with_one_item_per_theme():
+    import dash_bootstrap_components as dbc
+
+    from interfaces.dash_ui.layout import STATIONS_OPEN, tab_stations
+
+    def walk(n):
+        yield n
+        kids = getattr(n, "children", None)
+        for k in kids if isinstance(kids, (list, tuple)) else [kids]:
+            if hasattr(k, "to_plotly_json"):
+                yield from walk(k)
+
+    nodes = list(walk(tab_stations()))
+    accordion = next(n for n in nodes if isinstance(n, dbc.Accordion))
+    assert [i.title for i in accordion.children] == ["Recherche de bornes de recharge", "Pondérations de la note"]
+    assert accordion.always_open is True and set(accordion.active_item) == set(STATIONS_OPEN) and "weights" not in accordion.active_item
+    assert "max-detour" in {getattr(n, "id", None) for n in nodes}
