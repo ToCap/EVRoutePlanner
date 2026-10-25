@@ -210,7 +210,7 @@ def map_view(tile_url: str, attribution: str):
         dbc.Popover(dbc.PopoverBody(id="notif-list"), target="notif-btn", trigger="legacy", placement="bottom"),
         html.Div(id="toasts", style={**_OVER_MAP, "top": "10px", "right": "60px", "width": "320px"}),
         html.Div(id="map-alert", style={**_OVER_MAP, "bottom": "28px", "left": "50%", "transform": "translateX(-50%)", "maxWidth": "90%"}),
-        html.Div([dbc.Spinner(color="success", size="sm"), html.Span("Affinage en cours…", className="ms-2 small")],
+        html.Div([dbc.Spinner(color="success", size="sm"), html.Span("Affinage en cours…", id="refine-text", className="ms-2 small")],
                  id="refine-badge", className="bg-white border rounded shadow-sm px-2 py-1", style=BADGE_HIDDEN),
         dbc.Button("☰", id="open-sidebar", color="light", size="sm", title="Afficher les paramètres", className="shadow-sm border",
                    style={"position": "absolute", "top": "10px", "left": "10px", "zIndex": 1000}),
