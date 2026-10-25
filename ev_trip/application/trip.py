@@ -114,8 +114,8 @@ def _estimate(
 
 
 def route_energy_kwh(report: TripReport, temp_c: float) -> float:
-    """Mean-scenario energy of the whole route (battery-independent: ranks routes, not interrupted runs)."""
-    return sum(slice_energy_kwh(s.length_km, s.road_type, temp_c, report.config) for s in report.slices)
+    """Energy of the whole route in the configured scenario (battery-independent: ranks routes, not interrupted runs)."""
+    return sum(slice_energy_kwh(s.length_km, s.road_type, temp_c, report.config, report.config.scenario) for s in report.slices)
 
 
 def _overpass_variants(route: Route, destination: Point, k: int) -> list[Route]:

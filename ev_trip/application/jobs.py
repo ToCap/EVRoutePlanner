@@ -11,7 +11,7 @@ from typing import Callable, Protocol
 from ev_trip.application.charging import plan_charging
 from ev_trip.application.trip import refine_trip, run_trip, run_trip_profiles
 from ev_trip.domain.charging import ChargingPlan, TariffTable
-from ev_trip.domain.config import CHARGER_LEVELS, DEFAULT_CHARGERS, ConsumptionConfig
+from ev_trip.domain.config import CHARGER_LEVELS, DEFAULT_CHARGERS, DEFAULT_SCENARIO, SCENARIOS, ConsumptionConfig
 from ev_trip.domain.models import VehicleParams
 from ev_trip.domain.route_profiles import ProfileReports
 from ev_trip.domain.trip_report import TripReport
@@ -42,6 +42,7 @@ class TripRequest:
     battery_health_pct: float = 100.0  # state of health: real capacity = nominal x health; charge levels apply to the real one
     eco_extra_pct: float = 15.0  # consumption profile: accepted duration gap (%) over the fastest route
     eco_exit_variants: int = 2  # consumption profile: motorway exits tried before the fast route's own exit (0-2)
+    scenario: str = DEFAULT_SCENARIO  # the one consumption scenario shown and used (optimiste / moyenne / pessimiste)
     profile: str = "fast"  # profile shown first (a display choice: not part of the result key)
 
     def __post_init__(self) -> None:
@@ -50,6 +51,8 @@ class TripRequest:
         if unknown:
             raise ValueError(f"Niveau de recharge inconnu : {', '.join(unknown)}.")
         object.__setattr__(self, "chargers", tuple(c for c in known if c in self.chargers))  # canonical order: same key
+        if self.scenario not in SCENARIOS:
+            raise ValueError(f"Estimation inconnue : {self.scenario}.")
         if self.profile not in PROFILES:
             raise ValueError(f"Profil inconnu : {self.profile}.")
         if not 0 <= self.eco_exit_variants <= 2:
@@ -98,6 +101,7 @@ class TripEntry:
     eco_charging: ChargingPlan | None = None  # stations of the consumption profile (`charging` is the fast profile's)
     planned: str = "fast"  # profile whose stations the first task searches
     pending: int = 0  # running background tasks
+    scenario: str = DEFAULT_SCENARIO  # scenario kept in the reports
 
     def report_for(self, profile: str) -> TripReport:
         return self.eco_report if profile == "eco" and self.eco_report is not None else self.report
@@ -108,6 +112,11 @@ class TripEntry:
     def profile_of(self, profile: str) -> str:
         """The profile actually available: "eco" only if it differs from the fast route."""
         return "eco" if profile == "eco" and self.eco_report is not None else "fast"
+
+
+def only_scenario(report: TripReport, scenario: str) -> TripReport:
+    """Report limited to one consumption scenario (its simulation is also the reference of the charging search)."""
+    return replace(report, config=replace(report.config, scenario=scenario), simulations={scenario: report.simulations[scenario]})
 
 
 class TripStore(Protocol):
@@ -185,7 +194,8 @@ class TripService:
         if self.run_profiles is not None:
             profiles = self.run_profiles(
                 request.origin, request.destination, request.temp_c, request.vehicle(),
-                ConsumptionConfig(eco_max_extra_duration_pct=request.eco_extra_pct, eco_exit_variants=request.eco_exit_variants), use_overpass=request.use_overpass, refine=False,
+                ConsumptionConfig(eco_max_extra_duration_pct=request.eco_extra_pct, eco_exit_variants=request.eco_exit_variants,
+                                  scenario=request.scenario), use_overpass=request.use_overpass, refine=False,
             )
             report, eco = profiles.fast, (None if profiles.same else profiles.eco)
         else:
@@ -193,11 +203,13 @@ class TripService:
                 request.origin, request.destination, request.temp_c, request.vehicle(),
                 use_overpass=request.use_overpass, refine=False,
             )
+        report = only_scenario(report, request.scenario)
+        eco = only_scenario(eco, request.scenario) if eco is not None else None
         busy = report.refinable or (eco is not None and eco.refinable) or request.wants_charging
         entry = TripEntry(
             report, REFINING if busy else DONE, None, False, request.max_detour_km, None, request.chargers,
             (request.charge_from_pct, request.charge_to_pct), request.charge_minutes,
-            eco, None, "eco" if request.profile == "eco" and eco is not None else "fast", 1 if busy else 0,
+            eco, None, "eco" if request.profile == "eco" and eco is not None else "fast", 1 if busy else 0, request.scenario,
         )
         self.store.set(key, entry)
         if busy and self.store.acquire(key):  # one task per trip
@@ -229,10 +241,10 @@ class TripService:
         report, eco, refined, errors = entry.report, entry.eco_report, entry.refined, []
         try:
             if report.refinable:
-                report = self.refine(report)
+                report = only_scenario(self.refine(report), entry.scenario)
                 refined = True
             if eco is not None and eco.refinable:
-                eco = self.refine(eco)
+                eco = only_scenario(self.refine(eco), entry.scenario)
                 refined = True
         except Exception as exc:  # the task must never stop without publishing its state
             log.exception("Affinage du trajet impossible")

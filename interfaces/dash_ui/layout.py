@@ -135,6 +135,8 @@ def tab_energy():
 SIDEBAR_WIDTH = "min(400px, 90vw)"
 
 
+SCENARIO_OPTIONS = [{"label": "Optimiste", "value": "optimiste"}, {"label": "Moyenne (neutre)", "value": "moyenne"},
+                    {"label": "Pessimiste", "value": "pessimiste"}]
 CONFIG_OPEN = ["compute", "eco"]  # both themes expanded at load
 
 
@@ -143,6 +145,7 @@ def tab_configuration():
         dbc.Accordion([
             _accordion_item(
                 "Calcul du trajet", "compute",
+                _group("Estimation de consommation", dbc.Select(id="scenario", options=SCENARIO_OPTIONS, value=DEFAULTS["scenario"])),
                 dbc.Switch(id="use-overpass", label="Type de route via OpenStreetMap (plus précis, plus lent)", value=DEFAULTS["use_overpass"]),
                 html.P("Désactivé : type de route estimé d'après la vitesse moyenne OSRM.", className="small text-muted"),
             ),

@@ -147,6 +147,9 @@ class ConsumptionConfig:
     # Consumption route profile: motorway exits tried before the fast route's own exit (0 = OSRM alternatives only, max 2)
     eco_exit_variants: int = 2
 
+    # Scenario that estimates a trip (optimiste / moyenne / pessimiste): consumption, charge need, route ranking
+    scenario: str = DEFAULT_SCENARIO
+
     # Charging stations (search, scoring)
     charging: ChargingConfig = field(default_factory=ChargingConfig)
 
@@ -161,6 +164,8 @@ class ConsumptionConfig:
                 raise ValueError(f"Fourchette invalide pour « {road_type} » : il faut 0 < basse <= haute.")
             ranges[road_type] = (low, high)
         self.consumption_range_kwh_per_100km = ranges
+        if self.scenario not in SCENARIOS:
+            raise ValueError(f"Scénario inconnu : {self.scenario!r} (attendu : {', '.join(SCENARIOS)})")
         if not 0 <= self.eco_exit_variants <= 2:
             raise ValueError("eco_exit_variants doit être compris entre 0 et 2.")
         if self.eco_max_extra_duration_pct < 0:

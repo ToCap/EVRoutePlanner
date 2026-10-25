@@ -155,7 +155,7 @@ def test_refresh_renders_every_panel_and_keeps_polling_while_busy():
     assert len(done["route"]) == len(build_view_data(report)["route_slices"]) + 2  # slices + start + arrival
     assert len(done["markers"]) == 1  # one station (the 100 km trip is not interrupted)
     assert "Borne A" in str(done["stations"]) and "Ionity" in str(done["stations"])
-    assert len(done["graph"].data) == 4  # 3 scenarios + threshold
+    assert len(done["graph"].data) == 2  # the chosen scenario + threshold
     assert "Détail" not in str(done["detail"]) and "kWh/100" in str(done["detail"])
     (south, west), (north, east) = callbacks.map_bounds(svc, key)
     assert south < north and west <= east

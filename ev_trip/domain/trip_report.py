@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from ev_trip.domain.config import DEFAULT_SCENARIO, ConsumptionConfig
+from ev_trip.domain.config import ConsumptionConfig
 from ev_trip.domain.models import Route, SimulationResult, Slice
 from ev_trip.domain.sampling import CoarsePlan
 
@@ -23,8 +23,8 @@ class TripReport:
 
     @property
     def simulation(self) -> SimulationResult:
-        """Mean scenario ("moyenne"), the reference."""
-        return self.simulations[DEFAULT_SCENARIO]
+        """Simulation of the configured scenario (`config.scenario`, "moyenne" by default), the reference."""
+        return self.simulations[self.config.scenario]
 
     @property
     def refinable(self) -> bool:

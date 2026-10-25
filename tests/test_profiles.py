@@ -46,17 +46,17 @@ def test_stations_are_searched_for_the_first_profile_then_on_demand():
     fast, eco, plans = _report(200), _report(215), []
     svc, jobs = _service(ProfileReports(fast, eco), plans)
     key, entry = svc.start(_request(profile="fast"))
-    assert entry.report is fast and entry.eco_report is eco and entry.state == REFINING and len(jobs) == 1
+    assert entry.report.route.duration_min == 200 and entry.eco_report.route.duration_min == 215 and entry.state == REFINING and len(jobs) == 1
     jobs.pop()()  # first task: fast profile
     entry = svc.get(key)
-    assert plans == [fast] and entry.charging == "plan1" and entry.charging_for("eco") is None and entry.state == DONE
+    assert [r.route.duration_min for r in plans] == [200] and entry.charging == "plan1" and entry.charging_for("eco") is None and entry.state == DONE
     svc.ensure_charging(key, "eco")
     assert svc.get(key).state == REFINING and len(jobs) == 1
     svc.ensure_charging(key, "eco")  # one task per trip and profile
     assert len(jobs) == 1
     jobs.pop()()
     entry = svc.get(key)
-    assert plans == [fast, eco] and entry.charging_for("eco") == "plan2" and entry.charging_for("fast") == "plan1"
+    assert [r.route.duration_min for r in plans] == [200, 215] and entry.charging_for("eco") == "plan2" and entry.charging_for("fast") == "plan1"
     assert entry.state == DONE and entry.pending == 0
     svc.ensure_charging(key, "eco")  # already known
     assert not jobs
@@ -67,7 +67,7 @@ def test_first_profile_eco_searches_eco_stations_first():
     svc, jobs = _service(ProfileReports(fast, eco), plans)
     key, _ = svc.start(_request(profile="eco"))
     jobs.pop()()
-    assert plans == [eco] and svc.get(key).charging_for("eco") == "plan1" and svc.get(key).charging is None
+    assert [r.route.duration_min for r in plans] == [215] and svc.get(key).charging_for("eco") == "plan1" and svc.get(key).charging is None
 
 
 def test_profile_and_eco_gap_in_the_query_string():
@@ -141,3 +141,43 @@ def test_configuration_tab_is_an_accordion_with_one_item_per_theme():
     assert [i.title for i in accordion.children] == ["Calcul du trajet", "Profil consommation"]
     assert accordion.always_open is True and set(accordion.active_item) == set(CONFIG_OPEN)
     assert {"use-overpass", "eco-extra", "eco-exit"} <= {getattr(n, "id", None) for n in nodes}
+
+
+def test_a_single_scenario_is_kept_per_profile():
+    fast, eco = _report(200), _report(215)
+    svc, _ = _service(ProfileReports(fast, eco), [])
+    _, entry = svc.start(_request(scenario="pessimiste"))
+    for report in (entry.report, entry.eco_report):
+        assert list(report.simulations) == ["pessimiste"] and report.simulation is report.simulations["pessimiste"]
+        assert report.config.scenario == "pessimiste"
+    assert _request(scenario="optimiste").key() != _request().key()
+    with pytest.raises(ValueError):
+        _request(scenario="x")
+
+
+def test_default_scenario_is_the_mean_and_survives_refinement():
+    fast, eco = _report(200), _report(215)
+    fast.precision = "coarse"  # refinable: the background task recomputes the three scenarios
+    svc, jobs = _service(ProfileReports(fast, eco), [])
+    svc.refine = lambda r: _report(r.route.duration_min)
+    key, entry = svc.start(_request())
+    assert list(entry.report.simulations) == ["moyenne"]
+    jobs.pop()()
+    assert list(svc.get(key).report.simulations) == ["moyenne"] and list(svc.get(key).eco_report.simulations) == ["moyenne"]
+
+
+def test_scenario_in_the_query_string_and_the_config_field():
+    request = request_from_values({**DEFAULTS, "origin": "a", "destination": "b", "scenario": "optimiste"})
+    assert request.scenario == "optimiste" and from_query(to_query(request))["scenario"] == "optimiste"
+    assert request_from_values({**DEFAULTS, "origin": "a", "destination": "b"}).scenario == "moyenne"
+    from interfaces.dash_ui import layout
+
+    def walk(n):
+        yield n
+        kids = getattr(n, "children", None)
+        for k in kids if isinstance(kids, (list, tuple)) else [kids]:
+            if hasattr(k, "to_plotly_json"):
+                yield from walk(k)
+
+    select = next(n for n in walk(layout.tab_configuration()) if getattr(n, "id", None) == "scenario")
+    assert select.value == "moyenne" and [o["value"] for o in select.options] == ["optimiste", "moyenne", "pessimiste"]

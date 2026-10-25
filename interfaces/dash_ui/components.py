@@ -130,7 +130,7 @@ def scenario_cards(data: dict) -> list:
             html.Div(f"{s['total_km']:.1f} km · {s['total_kwh']:.1f} kWh"
                      + (f" · {s['avg_kwh_per_100km']:.1f} kWh/100" if s["avg_kwh_per_100km"] is not None else ""), className="small"),
             html.Div(f"Charge finale : {s['final_soc']:.1f} % ({s['final_kwh']:.1f} kWh)", className="small"),
-        ], className="py-1 px-2"), className="mb-1"), xs=12, md=4))
+        ], className="py-1 px-2"), className="mb-1"), xs=12, md=4 if len(data["scenarios"]) > 1 else 6))
     return [dbc.Row(cols, className="g-2")]
 
 
