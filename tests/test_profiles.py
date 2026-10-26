@@ -146,7 +146,7 @@ def test_profile_options_and_overlay_helpers():
     chart = [{"x": 0, "y": 90}, {"x": 100, "y": 50}]
     data = {"scenarios": [{"chart": chart, "label": "Moyenne", "color": "#111"}], "trip_km": 100, "min_soc": 10}
     fig = components.charge_figure(data, {"scenarios": [{"chart": chart, "label": "x", "color": "#000"}] * 3})
-    assert fig.data[0].name == "Autre profil (moyenne)" and len(fig.data) == 3
+    assert fig.data[0].name == "Autre profil" and len(fig.data) == 3
     assert components.alt_route_layer({"route_slices": [{"points": [[1, 2], [3, 4]]}]}).dashArray == "8 8"
 
 

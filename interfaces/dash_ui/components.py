@@ -64,7 +64,7 @@ def banners(entry: TripEntry, data: dict) -> list:
     # the scenario name is shown only when several scenarios are displayed
     detail = " · ".join((f"{s['label']} : " if len(data["scenarios"]) > 1 else "") + f"km {s['alert']['km']}" for s in stopped)
     return [dbc.Alert([html.Strong(f"Trajet interrompu avant l'arrivée ({data['trip_km']:.1f} km) : "), detail,
-                       f" — seuil de réserve atteint ({data['min_soc']:g} %)."], color="danger", className="py-1 mb-2")]
+                       f" - seuil de réserve atteint ({data['min_soc']:g} %)."], color="danger", className="py-1 mb-2")]
 
 
 LEVEL_RANK = {"success": 0, "info": 1, "warning": 2, "danger": 3}
@@ -121,7 +121,13 @@ def trip_summary(data: dict, duration_min: float) -> html.Div:
 
 
 def scenario_cards(data: dict) -> list:
-    """One card per scenario, one column each (stacked on narrow screens)."""
+    """One card per scenario, one column each (stacked on narrow screens); a single scenario is one plain line."""
+    if len(data["scenarios"]) == 1:
+        s = data["scenarios"][0]
+        status = dbc.Badge("arrivée", color="success") if s["completed"] else dbc.Badge(f"interrompu km {s['alert']['km']}", color="danger")
+        kwh_100 = f" · {s['avg_kwh_per_100km']:.1f} kWh/100 km" if s["avg_kwh_per_100km"] is not None else ""
+        return [html.Div([f"{s['total_kwh']:.1f} kWh{kwh_100} · charge finale {s['final_soc']:.1f} % ({s['final_kwh']:.1f} kWh) ", status],
+                         className="small")]
     cols = []
     for s in data["scenarios"]:
         status = (dbc.Badge("arrivée", color="success") if s["completed"]
@@ -131,7 +137,7 @@ def scenario_cards(data: dict) -> list:
             html.Div(f"{s['total_km']:.1f} km · {s['total_kwh']:.1f} kWh"
                      + (f" · {s['avg_kwh_per_100km']:.1f} kWh/100" if s["avg_kwh_per_100km"] is not None else ""), className="small"),
             html.Div(f"Charge finale : {s['final_soc']:.1f} % ({s['final_kwh']:.1f} kWh)", className="small"),
-        ], className="py-1 px-2"), className="mb-1"), xs=12, md=4 if len(data["scenarios"]) > 1 else 6))
+        ], className="py-1 px-2"), className="mb-1"), xs=12, md=4))
     return [dbc.Row(cols, className="g-2")]
 
 
@@ -153,14 +159,15 @@ def profile_options(entry: TripEntry) -> list[dict]:
 
 def charge_figure(data: dict | None = None, other: dict | None = None) -> go.Figure:
     fig = go.Figure()
+    single = bool(data) and len(data["scenarios"]) == 1  # one scenario: its name is not repeated
     if data and other:  # mean scenario of the other profile, for comparison
         ref = other["scenarios"][len(other["scenarios"]) // 2]
         fig.add_scatter(x=[p["x"] for p in ref["chart"]], y=[p["y"] for p in ref["chart"]], mode="lines",
-                        name="Autre profil (moyenne)", line={"color": "#aaa", "dash": "dot"})
+                        name="Autre profil" if single else "Autre profil (moyenne)", line={"color": "#aaa", "dash": "dot"})
     if data:
         for s in data["scenarios"]:
             fig.add_scatter(x=[p["x"] for p in s["chart"]], y=[p["y"] for p in s["chart"]], mode="lines+markers",
-                            name=s["label"], line={"color": s["color"]}, marker={"size": 4})
+                            name="Charge restante" if single else s["label"], line={"color": s["color"]}, marker={"size": 4})
         fig.add_scatter(x=[0, data["trip_km"]], y=[data["min_soc"]] * 2, mode="lines", name="Seuil minimum",
                         line={"color": "#888", "dash": "dash"})
     fig.update_layout(margin={"l": 40, "r": 10, "t": 10, "b": 35}, template="plotly_white", height=None,
@@ -173,6 +180,7 @@ def detail_table(data: dict) -> html.Div:
     head1 = html.Tr([html.Th(colSpan=4)] + [
         html.Th(s["label"], colSpan=3, style={"textAlign": "center", "borderBottom": f"3px solid {s['color']}"})
         for s in data["scenarios"]])
+    heads = [head1] if len(data["scenarios"]) > 1 else []  # the scenario row is useless when only one is shown
     head2 = html.Tr([html.Th(h) for h in ("#", "début km", "fin km", "type")]
                     + [html.Th(h) for _ in data["scenarios"] for h in ("kWh/100", "kWh", "charge %")])
     body = []
@@ -186,7 +194,7 @@ def detail_table(data: dict) -> html.Div:
                 cells += [html.Td(f"{c['cons']:.1f}"), html.Td(f"{c['kwh']:.2f}"),
                           html.Td(f"{c['soc']:.1f}" + (" ⛔" if c["stop"] else ""), **stop)]
         body.append(html.Tr(cells))
-    return html.Div(dbc.Table([html.Thead([head1, head2]), html.Tbody(body)], size="sm", striped=True, responsive=True, className="text-end mb-0"))
+    return html.Div(dbc.Table([html.Thead([*heads, head2]), html.Tbody(body)], size="sm", striped=True, responsive=True, className="text-end mb-0"))
 
 
 def stations_table(charging: dict | None, requested: bool) -> html.Div:
@@ -206,7 +214,7 @@ def stations_table(charging: dict | None, requested: bool) -> html.Div:
         price = "inconnu" if b["price"] is None else f"{b['price']:.2f} €/kWh" + (f" · ≈{b['cost']:.2f} €" if b["cost"] is not None else "") + f" ({b['price_source']})"
         sub = f"détour {b['sub']['detour']} · besoin {b['sub']['need']} · charge {b['sub']['charge']} · prix {b['sub']['price']}"
         if b["notes"]:
-            sub += " — " + ", ".join(b["notes"])
+            sub += " - " + ", ".join(b["notes"])
         body.append(html.Tr([
             html.Td(b["rank"]),
             html.Td(dbc.Badge(str(b["score"]), style={"backgroundColor": b["color"]})),

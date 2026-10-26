@@ -15,3 +15,20 @@ def test_single_scenario_alert_has_no_scenario_name():
 
 def test_several_scenarios_alert_keeps_names():
     assert "Optimiste : km 216.1" in str(ui.banners(None, _data(["optimiste", "moyenne"])))
+
+
+def test_single_scenario_is_one_line_not_a_card():
+    s = {"key": "moyenne", "label": "Moyenne", "color": "#000", "completed": False, "alert": {"km": 216.1}, "total_km": 216.1,
+         "total_kwh": 41.6, "avg_kwh_per_100km": 19.3, "final_soc": 10.0, "final_kwh": 5.2}
+    text = str(ui.scenario_cards({"scenarios": [s]}))
+    assert "Card" not in text and "Moyenne" not in text and "41.6 kWh" in text and "interrompu km 216.1" in text
+    assert "Card" in str(ui.scenario_cards({"scenarios": [s, {**s, "key": "optimiste", "label": "Optimiste"}]}))
+
+
+def test_single_scenario_chart_and_table_do_not_name_it():
+    s = {"key": "moyenne", "label": "Moyenne", "color": "#000", "chart": [{"x": 0, "y": 90}, {"x": 100, "y": 50}]}
+    data = {"scenarios": [s], "trip_km": 100.0, "min_soc": 10.0, "rows": []}
+    fig = ui.charge_figure(data, data)
+    assert [t.name for t in fig.data] == ["Autre profil", "Charge restante", "Seuil minimum"]
+    assert "Moyenne" not in str(ui.detail_table(data))
+    assert "Moyenne" in str(ui.detail_table({**data, "scenarios": [s, {**s, "label": "Optimiste"}]}))
