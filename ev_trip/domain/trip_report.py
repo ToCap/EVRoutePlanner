@@ -20,6 +20,7 @@ class TripReport:
     # "coarse": first estimate (1 Overpass point per section), "fine": final result
     precision: str = "fine"
     coarse: CoarsePlan | None = None  # pass-1 data, used by the refinement
+    full_simulations: dict[str, SimulationResult] | None = None  # all scenarios, kept when `simulations` is cut to one
 
     @property
     def simulation(self) -> SimulationResult:

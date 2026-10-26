@@ -55,7 +55,7 @@ def compute(service: TripService, trigger: str | None, values: dict, search: str
 def refresh(service: TripService, key: str | None, profile: str = "fast"):
     """Renders all panels for a route profile; returns a dict per output + polling stop."""
     empty = {"route": [], "markers": [], "status": [], "map_alert": [], "notifs": [], "summary": no_update, "cards": no_update,
-             "graph": ui.charge_figure(), "detail": [], "stations": [], "poll_disabled": True,
+             "graph": ui.charge_figure(), "detail": [], "stations": [], "poll_disabled": True, "stage": no_update,
              "profile_options": no_update, "profile_style": {"display": "none"}, "profile_note": ""}
     if not key:
         return empty
@@ -79,7 +79,7 @@ def refresh(service: TripService, key: str | None, profile: str = "fast"):
         "summary": ui.trip_summary(data, report.route.duration_min), "cards": ui.scenario_cards(data),
         "graph": ui.charge_figure(data, other), "detail": ui.detail_table(data),
         "stations": ui.stations_table(data.get("charging"), requested),
-        "poll_disabled": entry.state != REFINING,
+        "poll_disabled": entry.state != REFINING, "stage": entry.stage or "Calcul en cours…",
         "profile_options": ui.profile_options(entry), "profile_style": {} if other else {"display": "none"},
         "profile_note": "" if other else "Itinéraire unique (profils rapide et consommation identiques)",
     }
@@ -162,14 +162,14 @@ def register(app, service: TripService) -> None:
         Output("trip-summary", "children"), Output("scenario-cards", "children"), Output("charge-graph", "figure"), Output("detail-table", "children"),
         Output("stations-table", "children"), Output("poll", "disabled"), Output("refine-badge", "style"),
         Output("map-alert", "children"), Output("notif-new", "data"),
-        Output("profile", "options"), Output("profile", "style"), Output("profile-note", "children"),
+        Output("profile", "options"), Output("profile", "style"), Output("profile-note", "children"), Output("refine-text", "children"),
         Input("trip-key", "data"), Input("poll", "n_intervals"), Input("profile", "value"),
     )
     def on_refresh(key, _n, profile):
         r = refresh(service, key, profile)
         return (r["route"], r["markers"], r["status"], r["summary"], r["cards"], r["graph"], r["detail"], r["stations"], r["poll_disabled"],
                 BADGE_HIDDEN if r["poll_disabled"] else BADGE_SHOWN, r["map_alert"], r["notifs"],
-                r["profile_options"], r["profile_style"], r["profile_note"])
+                r["profile_options"], r["profile_style"], r["profile_note"], r["stage"])
 
     @app.callback(Output("url", "search", allow_duplicate=True), Input("profile", "value"), State("url", "search"), prevent_initial_call=True)
     def on_profile(profile, search):  # keeps the shared link in line with the displayed profile

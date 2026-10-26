@@ -35,10 +35,11 @@ def build_view_data(report: TripReport) -> dict:
     ]
 
     # Table: one row per planned slice, one cell per scenario (None if not reached).
+    names = [n for n in SCENARIOS if n in report.simulations]  # a report may hold a single scenario
     rows = []
     for sl in report.slices:
         cells = []
-        for name in SCENARIOS:
+        for name in names:
             r = by_index[name].get(sl.index)
             if r is None:
                 cells.append(None)
@@ -63,7 +64,7 @@ def build_view_data(report: TripReport) -> dict:
         )
 
     scenarios = []
-    for name in SCENARIOS:
+    for name in names:
         sim = report.simulations[name]
         alert = None
         if sim.alert:

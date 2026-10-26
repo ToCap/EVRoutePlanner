@@ -21,6 +21,10 @@ log = logging.getLogger(__name__)
 # Entry states: refining = task running, done = finished, failed = task error (first-pass result stays available).
 REFINING, DONE, FAILED = "refining", "done", "failed"
 PROFILES = ("fast", "eco")  # route profiles: fastest, lowest consumption
+PROFILE_LABELS = {"fast": "Rapide", "eco": "Consommation"}
+STAGE_REFINE = "Affinage des types de route…"
+STAGE_STATIONS = "Recherche des bornes…"
+STAGE_POOL = "Recherche des bornes (2 itinéraires)…"
 
 
 @dataclass(frozen=True)
@@ -102,6 +106,7 @@ class TripEntry:
     planned: str = "fast"  # profile whose stations the first task searches
     pending: int = 0  # running background tasks
     scenario: str = DEFAULT_SCENARIO  # scenario kept in the reports
+    stage: str = ""  # what the background task is doing now (shown in the busy badge)
 
     def report_for(self, profile: str) -> TripReport:
         return self.eco_report if profile == "eco" and self.eco_report is not None else self.report
@@ -116,7 +121,13 @@ class TripEntry:
 
 def only_scenario(report: TripReport, scenario: str) -> TripReport:
     """Report limited to one consumption scenario (its simulation is also the reference of the charging search)."""
-    return replace(report, config=replace(report.config, scenario=scenario), simulations={scenario: report.simulations[scenario]})
+    full = report.simulations if len(report.simulations) > 1 else (report.full_simulations or report.simulations)
+    return replace(report, config=replace(report.config, scenario=scenario), simulations={scenario: full[scenario]}, full_simulations=full)
+
+
+def for_planning(report: TripReport) -> TripReport:
+    """Report with every scenario again: the station scoring needs the average and pessimistic simulations."""
+    return replace(report, simulations=report.full_simulations) if report.full_simulations else report
 
 
 class TripStore(Protocol):
@@ -212,6 +223,7 @@ class TripService:
             report, REFINING if busy else DONE, None, False, request.max_detour_km, None, request.chargers,
             (request.charge_from_pct, request.charge_to_pct), request.charge_minutes,
             eco, None, "eco" if request.profile == "eco" and eco is not None else "fast", 1 if busy else 0, request.scenario,
+            STAGE_REFINE if report.refinable or (eco is not None and eco.refinable) else (STAGE_STATIONS if request.wants_charging else ""),
         )
         self.store.set(key, entry)
         if busy and self.store.acquire(key):  # one task per trip
@@ -225,7 +237,7 @@ class TripService:
         if pool is not None:
             timed["pool"] = pool
         try:
-            return self.plan(report, entry.max_detour_km, tariffs=self.tariffs(), chargers=entry.chargers, **timed), []
+            return self.plan(for_planning(report), entry.max_detour_km, tariffs=self.tariffs(), chargers=entry.chargers, **timed), []
         except Exception as exc:
             log.exception("Recherche des bornes impossible")
             return None, [f"bornes : {exc}"]
@@ -235,7 +247,15 @@ class TripService:
         latest = self.store.get(key) or entry
         pending = max(latest.pending - 1, 0)
         state = REFINING if pending else (FAILED if errors else DONE)
-        self.store.set(key, replace(latest, state=state, error="; ".join(errors) or None, pending=pending, **changes))
+        stage = latest.stage if pending else ""  # cleared when the last task ends
+        self.store.set(key, replace(latest, state=state, error="; ".join(errors) or None, pending=pending, stage=stage, **changes))
+
+    def _stage(self, key: str, entry: TripEntry, text: str) -> None:
+        self.store.set(key, replace(self.store.get(key) or entry, stage=text))
+
+    @staticmethod
+    def _detour_stage(entry: TripEntry, profile: str) -> str:
+        return f"Calcul des détours (profil {PROFILE_LABELS[profile]})…" if entry.eco_report is not None else "Calcul des détours…"
 
     def run_job(self, key: str) -> None:
         """Background task: route-type refinement (if useful), then charging stations (if requested)."""
@@ -244,6 +264,8 @@ class TripService:
             return
         report, eco, refined, errors = entry.report, entry.eco_report, entry.refined, []
         try:
+            if report.refinable or (eco is not None and eco.refinable):
+                self._stage(key, entry, STAGE_REFINE)
             if report.refinable:
                 report = only_scenario(self.refine(report), entry.scenario)
                 refined = True
@@ -255,10 +277,12 @@ class TripService:
             errors.append(f"affinage : {exc}")
         changes: dict = {"report": report, "eco_report": eco, "refined": refined}
         if entry.max_detour_km > 0:
+            self._stage(key, entry, STAGE_POOL if eco is not None else STAGE_STATIONS)
             pool = self._pool(entry, report, eco)
             first = entry.profile_of(entry.planned)
             order = [first, *(p for p in (("fast", "eco") if eco is not None else ("fast",)) if p != first)]
             for n, profile in enumerate(order):  # the displayed profile first: its stations appear while the other is searched
+                self._stage(key, entry, self._detour_stage(entry, profile))
                 plan, plan_errors = self._plan(entry, eco if profile == "eco" else report, pool)
                 errors += plan_errors
                 if plan is not None:
@@ -272,7 +296,7 @@ class TripService:
         if eco is None:
             return None
         try:
-            return self.find_pool([report, eco], entry.max_detour_km)
+            return self.find_pool([for_planning(report), for_planning(eco)], entry.max_detour_km)
         except Exception:
             log.exception("Recherche des bornes (toutes routes) impossible")
             return None
@@ -295,6 +319,7 @@ class TripService:
         entry = self.store.get(key)
         if entry is None:
             return
+        self._stage(key, entry, self._detour_stage(entry, profile))
         plan, errors = self._plan(entry, entry.report_for(profile))
         changes = {} if plan is None else {"eco_charging" if profile == "eco" else "charging": plan}
         self._finish(key, entry, errors, **changes)

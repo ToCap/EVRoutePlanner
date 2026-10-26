@@ -1,7 +1,7 @@
 """Route profiles in the service: one entry per trip, stations searched per profile on demand."""
 import pytest
 
-from ev_trip.application.jobs import DONE, FAILED, REFINING, MemoryStore, TripRequest, TripService
+from ev_trip.application.jobs import DONE, FAILED, REFINING, MemoryStore, TripRequest, TripService, for_planning
 from ev_trip.domain.models import Route, Slice, VehicleParams
 from ev_trip.domain.route_profiles import ProfileReports
 from ev_trip.domain.simulation import simulate_all
@@ -235,3 +235,51 @@ def test_stations_tab_is_an_accordion_with_one_item_per_theme():
     assert [i.title for i in accordion.children] == ["Recherche de bornes de recharge", "Pondérations de la note"]
     assert accordion.always_open is True and set(accordion.active_item) == set(STATIONS_OPEN) and "weights" not in accordion.active_item
     assert "max-detour" in {getattr(n, "id", None) for n in nodes}
+
+
+def test_busy_badge_shows_the_current_stage_of_the_background_task():
+    fast, eco = _report(200), _report(215)
+    fast.precision = "coarse"
+    seen, holder = [], {}
+
+    def snap(label):
+        seen.append((label, holder["svc"].get(holder["key"]).stage))
+
+    jobs = []
+    svc = TripService(MemoryStore(), runner=jobs.append, run_profiles=lambda *a, **k: ProfileReports(fast, eco),
+                      refine=lambda r: snap("refine") or r, plan=lambda report, km, **k: snap(f"plan{report.route.duration_min:g}") or "plan",
+                      find_pool=lambda reports, km: snap("pool") or [])
+    holder["svc"] = svc
+    holder["key"], entry = svc.start(_request())
+    assert entry.stage == "Affinage des types de route…"
+    jobs.pop()()
+    assert seen == [("refine", "Affinage des types de route…"), ("pool", "Recherche des bornes (2 itinéraires)…"),
+                    ("plan200", "Calcul des détours (profil Rapide)…"), ("plan215", "Calcul des détours (profil Consommation)…")]
+    assert svc.get(holder["key"]).stage == ""  # cleared when the task ends
+
+
+def test_single_route_stages_and_badge_text_id():
+    from interfaces.dash_ui import layout
+
+    fast = _report(200)
+    svc, _ = _service(ProfileReports(fast, fast), [])
+    _, entry = svc.start(_request())
+    assert entry.stage == "Recherche des bornes…" and svc._detour_stage(entry, "fast") == "Calcul des détours…"
+
+    def walk(n):
+        yield n
+        kids = getattr(n, "children", None)
+        for k in kids if isinstance(kids, (list, tuple)) else [kids]:
+            if hasattr(k, "to_plotly_json"):
+                yield from walk(k)
+
+    assert "refine-text" in {getattr(n, "id", None) for n in walk(layout.build_layout("https://t/{z}/{x}/{y}.png", "osm"))}
+
+
+def test_station_search_receives_every_scenario_despite_the_single_displayed_one():
+    seen = []
+    fast = _report(200)
+    svc, _ = _service(ProfileReports(fast, fast), seen)
+    _, entry = svc.start(_request())
+    assert list(entry.report.simulations) == ["moyenne"]
+    assert set(for_planning(entry.report).simulations) == {"optimiste", "moyenne", "pessimiste"}
