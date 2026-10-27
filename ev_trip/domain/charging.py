@@ -278,13 +278,19 @@ def _road_type_at(slices: list[Slice], km: float) -> str:
     return slices[i].road_type
 
 
+def arrival_floor_pct(vehicle, margin_pct: float) -> float:
+    """Charge (%) a trip should end with: the wanted arrival charge if it is above the minimum, else the minimum plus the margin."""
+    target = vehicle.arrival_soc_pct
+    return target if target is not None and target > vehicle.min_soc_pct else vehicle.min_soc_pct + margin_pct
+
+
 def need_level(report: TripReport) -> str:
-    """Need level: "nécessaire" (mean scenario fails), "prudent" (pessimistic tight or fails), else "optionnelle"."""
-    if not report.simulation.completed:
+    """Need level: "nécessaire" (mean scenario fails or ends under the wanted charge), "prudent" (pessimistic tight or fails), else "optionnelle"."""
+    sim = report.simulation
+    if not sim.completed or sim.short_of_arrival:
         return "nécessaire"
     pess = report.simulations["pessimiste"]
-    margin = report.config.charging.arrival_margin_pct
-    if not pess.completed or pess.final_soc_pct < pess.vehicle.min_soc_pct + margin:
+    if not pess.completed or pess.final_soc_pct < arrival_floor_pct(pess.vehicle, report.config.charging.arrival_margin_pct):
         return "prudent"
     return "optionnelle"
 
@@ -420,7 +426,7 @@ def score_station(
     s_need = 0.0
     if reachable and soc_arr is not None:
         arr_kwh = cap * soc_arr / 100.0
-        reserve_kwh = cap * (v.min_soc_pct + cc.arrival_margin_pct) / 100.0
+        reserve_kwh = cap * arrival_floor_pct(v, cc.arrival_margin_pct) / 100.0
         to_finish = energy_between(slices, report.config, temp, "moyenne", route_km, trip_km) + half_kwh
         missing = max(0.0, to_finish + reserve_kwh - arr_kwh)
         headroom = max(0.0, cap * cc.target_max_soc_pct / 100.0 - arr_kwh)

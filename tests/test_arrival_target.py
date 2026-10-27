@@ -53,3 +53,28 @@ def test_alert_under_the_wanted_charge_is_a_single_orange_line():
     assert ui.banners(None, _data(35.0)) == [] and ui.banners(None, _data(8.0, target=None)) == []
     assert ui.banners(None, _data(8.0, completed=False))[0].color == "danger"  # reaching the reserve stays the red alert
     assert "Optimiste : 8.0 %" in str(ui.banners(None, _data(8.0, names=("optimiste", "moyenne")))[0])
+
+
+def _report(arrival):
+    from ev_trip.domain.models import Route
+    from ev_trip.domain.simulation import simulate_all
+    from ev_trip.domain.trip_report import TripReport
+
+    slices = [Slice(0, 0.0, 200.0, "autoroute")]
+    return TripReport("A", "B", Route([], 200.0, 120.0), slices, simulate_all(slices, VehicleParams(50.0, 90.0, 10.0, arrival), 15.0))
+
+
+def test_need_level_follows_the_wanted_arrival_charge():
+    from ev_trip.domain.charging import need_level
+
+    assert need_level(_report(None)) != "nécessaire"  # the trip ends above the minimum
+    assert need_level(_report(80.0)) == "nécessaire"  # ... but far under the wanted charge
+
+
+def test_recharge_is_sized_to_reach_the_wanted_charge_at_arrival():
+    from ev_trip.domain.charging import Station, score_station
+
+    station = Station("node/1", 48.0, 2.0, power_kw=150.0, charge_type="rapide")
+    add = lambda arrival: score_station(_report(arrival), station, 100.0, 1.0, 2.0, 10.0, level="nécessaire").add_kwh
+    assert add(60.0) > add(None)  # more energy to end at 60 % than at the minimum plus margin
+    assert add(10.0) == add(None)  # a wish equal to the minimum changes nothing
