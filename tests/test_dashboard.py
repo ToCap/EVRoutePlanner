@@ -166,7 +166,7 @@ def test_interrupted_trip_shows_alert_and_stop_markers():
     svc.run_trip = lambda *a, **k: make_report(300)
     key, *_ = callbacks.compute(svc, "compute-btn", VALUES, "", None)
     r = callbacks.refresh(svc, key)
-    assert sum("interrompu" in str(b) for b in r["status"]) == 1  # a single alert for the 3 scenarios
+    assert not r["status"] and str(r["map_alert"]).count("Trajet interrompu") == 1  # the alert is on the map only, once for the 3 scenarios
     assert len(r["markers"]) >= 1 and "interrompu" in str(r["cards"]) and "interrompu" in str(r["map_alert"]) and "km" in str(r["summary"])
 
 

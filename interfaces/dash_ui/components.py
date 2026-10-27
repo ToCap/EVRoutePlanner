@@ -64,7 +64,7 @@ def banners(entry: TripEntry, data: dict) -> list:
     # the scenario name is shown only when several scenarios are displayed
     detail = " · ".join((f"{s['label']} : " if len(data["scenarios"]) > 1 else "") + f"km {s['alert']['km']}" for s in stopped)
     return [dbc.Alert([html.Strong(f"Trajet interrompu avant l'arrivée ({data['trip_km']:.1f} km) : "), detail,
-                       f" - seuil de réserve atteint ({data['min_soc']:g} %)."], color="danger", className="py-1 mb-2")]
+                       f" - seuil de réserve atteint ({data['min_soc']:g} %)."], color="danger", className="py-1 mb-0")]
 
 
 LEVEL_RANK = {"success": 0, "info": 1, "warning": 2, "danger": 3}

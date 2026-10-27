@@ -75,7 +75,7 @@ def refresh(service: TripService, key: str | None, profile: str = "fast"):
     route = ui.route_layers(data)
     return {
         "route": ([ui.alt_route_layer(other)] if other else []) + route, "markers": ui.marker_layers(data),
-        "status": ui.banners(entry, data), "map_alert": ui.banners(entry, data), "notifs": ui.notifications(entry, key),
+        "status": [], "map_alert": ui.banners(entry, data), "notifs": ui.notifications(entry, key),
         "summary": ui.trip_summary(data, report.route.duration_min), "cards": ui.scenario_cards(data),
         "graph": ui.charge_figure(data, other), "detail": ui.detail_table(data),
         "stations": ui.stations_table(data.get("charging"), requested),

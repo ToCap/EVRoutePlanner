@@ -2,7 +2,8 @@
 import pytest
 
 from ev_trip.application.jobs import DONE, FAILED, REFINING, MemoryStore, TripRequest, TripService, for_planning
-from ev_trip.domain.models import Route, Slice, VehicleParams
+from ev_trip.domain.config import ConsumptionConfig
+from ev_trip.domain.models import Point, Route, Slice, VehicleParams
 from ev_trip.domain.route_profiles import ProfileReports
 from ev_trip.domain.simulation import simulate_all
 from ev_trip.domain.trip_report import TripReport
@@ -283,3 +284,78 @@ def test_station_search_receives_every_scenario_despite_the_single_displayed_one
     _, entry = svc.start(_request())
     assert list(entry.report.simulations) == ["moyenne"]
     assert set(for_planning(entry.report).simulations) == {"optimiste", "moyenne", "pessimiste"}
+
+
+class _Classifier:
+    """Fake road classifier: every point on a main road."""
+
+    def classify(self, points):
+        return ["route"] * len(points)
+
+
+def _deferred(variants, sleeps, route_profiles=None):
+    """Service whose motorway exit search runs in the background (retries recorded in `sleeps`)."""
+    fast = _report(200)
+    jobs = []
+    svc = TripService(MemoryStore(), runner=jobs.append, run_profiles=lambda *a, **k: route_profiles or ProfileReports(fast, fast),
+                      refine=lambda r: r, variants=variants, retry_delays=(2.0, 5.0), sleep=sleeps.append)
+    request = TripRequest("Paris", "Caen", 15.0, 52.0, 90.0, 10.0, True, 0.0)
+    return svc, jobs, svc.start(request), fast
+
+
+def test_exit_variants_are_searched_in_the_background_and_add_the_consumption_route():
+    eco = _report(215)
+    sleeps = []
+    svc, jobs, (key, entry), fast = _deferred(lambda profiles, k: ProfileReports(profiles.fast, eco), sleeps)
+    assert entry.eco_report is None and entry.variants == 2 and entry.stage == "Recherche des sorties d'autoroute…" and len(jobs) == 1
+    jobs.pop()()
+    done = svc.get(key)
+    assert done.eco_report is not None and done.eco_report.route.duration_min == 215 and done.variants == 0
+    assert done.state == DONE and sleeps == [] and not any("variantes" in w for w in done.report.warnings)
+
+
+def test_exit_search_is_retried_and_succeeds_after_failures():
+    eco, calls, sleeps = _report(215), [], []
+
+    def variants(profiles, k):
+        calls.append(k)
+        if len(calls) < 3:
+            raise RuntimeError("502 (serveur surchargé)")
+        return ProfileReports(profiles.fast, eco)
+
+    svc, jobs, (key, _), _ = _deferred(variants, sleeps)
+    jobs.pop()()
+    assert calls == [2, 2, 2] and sleeps == [2.0, 5.0]
+    assert svc.get(key).eco_report is not None and svc.get(key).state == DONE
+
+
+def test_exit_search_warns_only_when_every_attempt_failed():
+    sleeps = []
+
+    def variants(profiles, k):
+        raise RuntimeError("502 (serveur surchargé)")
+
+    svc, jobs, (key, _), _ = _deferred(variants, sleeps)
+    jobs.pop()()
+    done = svc.get(key)
+    assert sleeps == [2.0, 5.0] and done.eco_report is None and done.state == DONE  # the trip stays usable
+    assert any("502 (serveur surchargé) : variantes de sortie non étudiées." in w for w in done.report.warnings)
+
+
+def test_add_exit_variants_ranks_the_variants_with_the_existing_routes(monkeypatch):
+    from ev_trip.application import trip
+
+    vehicle, cfg = VehicleParams(52.0, 90.0, 10.0), ConsumptionConfig()
+
+    def estimate(origin, destination, route, temp_c, veh, config, classifier):  # one slice as long as the route
+        slices = [Slice(0, 0.0, route.distance_km, "route")]
+        return TripReport(origin, destination, route, slices, simulate_all(slices, veh, temp_c, config), [], config)
+
+    monkeypatch.setattr(trip, "_estimate", estimate)
+    line = [Point(48.0, 2.0), Point(49.0, 2.0)]
+    fast = estimate("A", "B", Route(line, 110.0, 80.0), 15.0, vehicle, cfg, None)
+    slow = Route(line, 100.0, 85.0)  # shorter and a little slower: less energy, within the duration gap
+    found = trip.add_exit_variants(ProfileReports(fast, fast), 2, variants_fn=lambda route, end, k: [slow], classifier=_Classifier())
+    assert found.fast is fast and found.eco.route.duration_min == 85.0 and not found.same
+    unchanged = trip.add_exit_variants(ProfileReports(fast, fast), 2, variants_fn=lambda route, end, k: [], classifier=_Classifier())
+    assert unchanged.same and "Aucune variante" in fast.warnings[-1]

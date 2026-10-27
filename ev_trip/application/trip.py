@@ -179,6 +179,26 @@ def run_trip_profiles(
     return ProfileReports(fast, eco)
 
 
+def add_exit_variants(
+    profiles: ProfileReports[TripReport], k: int, *,
+    variants_fn: Callable[[Route, Point, int], list[Route]] | None = None, classifier: RoadClassifier | None = None,
+) -> ProfileReports[TripReport]:
+    """Profiles re-ranked with up to `k` motorway exit variants of the fast route (raises `EVTripError` if the search fails)."""
+    fast = profiles.fast
+    base = [fast] if profiles.same else [fast, profiles.eco]
+    found = (variants_fn or _overpass_variants)(fast.route, fast.route.coordinates[-1], k)
+    routes = [r.route for r in base] + found
+    keep = [i for i in distinct_indices([(r.distance_km, r.duration_min) for r in routes]) if i >= len(base)]
+    if not keep:
+        fast.warnings.append("Aucune variante de sortie d'autoroute trouvée.")
+        return profiles
+    first, classifier = fast.simulation, classifier or OverpassRoadClassifier()
+    reports = base + [_estimate(fast.origin, fast.destination, routes[i], first.temp_c, first.vehicle, fast.config, classifier) for i in keep]
+    energies = [route_energy_kwh(r, first.temp_c) for r in reports]
+    fast_i, eco_i = choose_profiles([(r.route.duration_min, e) for r, e in zip(reports, energies)], fast.config.eco_max_extra_duration_pct)
+    return ProfileReports(reports[fast_i], reports[eco_i])
+
+
 def refine_trip(
     report: TripReport, classifier: RoadClassifier | None = None, *, use_overpass: bool = True
 ) -> TripReport:
