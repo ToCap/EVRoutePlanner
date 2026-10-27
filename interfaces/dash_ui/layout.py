@@ -226,7 +226,7 @@ def routes_panel():
             html.Span(id="profile-note", className="small text-muted"),
         ], className="mb-2"),
         dbc.Tabs([
-            dbc.Tab(html.Div([html.Div(id="status-area"), html.Div(id="trip-summary"), html.Div(id="scenario-cards")], className="pt-2"),
+            dbc.Tab(html.Div([html.Div(id="trip-summary"), html.Div(id="scenario-cards")], className="pt-2"),
                     label="Trajet calculé", tab_id="t-trip"),
             dbc.Tab(dcc.Graph(id="charge-graph", figure=charge_figure(), style={"height": "calc(34vh - 90px)", "minHeight": "180px"},
                               config={"displaylogo": False}), label="Charge restante", tab_id="t-charge"),

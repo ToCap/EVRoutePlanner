@@ -54,15 +54,15 @@ def compute(service: TripService, trigger: str | None, values: dict, search: str
 
 def refresh(service: TripService, key: str | None, profile: str = "fast"):
     """Renders all panels for a route profile; returns a dict per output + polling stop."""
-    empty = {"route": [], "markers": [], "status": [], "map_alert": [], "notifs": [], "summary": no_update, "cards": no_update,
+    empty = {"route": [], "markers": [], "map_alert": [], "notifs": [], "summary": no_update, "cards": no_update,
              "graph": ui.charge_figure(), "detail": [], "stations": [], "poll_disabled": True, "stage": no_update,
              "profile_options": no_update, "profile_style": {"display": "none"}, "profile_note": ""}
     if not key:
         return empty
     entry = service.get(key)
     if entry is None:
-        expired = [dbc.Alert("Résultat expiré : relancer le calcul.", color="warning", className="py-1 m-2")]
-        return {**empty, "status": expired, "map_alert": expired}
+        expired = [dbc.Alert("Résultat expiré : relancer le calcul.", color="warning", className="py-1 mb-0")]
+        return {**empty, "map_alert": expired}
     service.ensure_charging(key, profile)  # searches the stations of this profile if not done yet (background task)
     entry = service.get(key) or entry
     profile = entry.profile_of(profile)
@@ -75,7 +75,7 @@ def refresh(service: TripService, key: str | None, profile: str = "fast"):
     route = ui.route_layers(data)
     return {
         "route": ([ui.alt_route_layer(other)] if other else []) + route, "markers": ui.marker_layers(data),
-        "status": [], "map_alert": ui.banners(entry, data), "notifs": ui.notifications(entry, key),
+        "map_alert": ui.banners(entry, data), "notifs": ui.notifications(entry, key),
         "summary": ui.trip_summary(data, report.route.duration_min), "cards": ui.scenario_cards(data),
         "graph": ui.charge_figure(data, other), "detail": ui.detail_table(data),
         "stations": ui.stations_table(data.get("charging"), requested),
@@ -158,7 +158,7 @@ def register(app, service: TripService) -> None:
         return handle("url", search, current_key, field_values)
 
     @app.callback(
-        Output("route-layer", "children"), Output("markers-layer", "children"), Output("status-area", "children"),
+        Output("route-layer", "children"), Output("markers-layer", "children"),
         Output("trip-summary", "children"), Output("scenario-cards", "children"), Output("charge-graph", "figure"), Output("detail-table", "children"),
         Output("stations-table", "children"), Output("poll", "disabled"), Output("refine-badge", "style"),
         Output("map-alert", "children"), Output("notif-new", "data"),
@@ -167,7 +167,7 @@ def register(app, service: TripService) -> None:
     )
     def on_refresh(key, _n, profile):
         r = refresh(service, key, profile)
-        return (r["route"], r["markers"], r["status"], r["summary"], r["cards"], r["graph"], r["detail"], r["stations"], r["poll_disabled"],
+        return (r["route"], r["markers"], r["summary"], r["cards"], r["graph"], r["detail"], r["stations"], r["poll_disabled"],
                 BADGE_HIDDEN if r["poll_disabled"] else BADGE_SHOWN, r["map_alert"], r["notifs"],
                 r["profile_options"], r["profile_style"], r["profile_note"], r["stage"])
 

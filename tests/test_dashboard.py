@@ -136,7 +136,7 @@ def test_refresh_without_result_or_with_expired_result():
     r = callbacks.refresh(svc, None)
     assert r["poll_disabled"] and r["route"] == []
     r = callbacks.refresh(svc, "0" * 40)
-    assert r["poll_disabled"] and "expiré" in r["status"][0].children
+    assert r["poll_disabled"] and "expiré" in r["map_alert"][0].children
     assert callbacks.map_bounds(svc, "0" * 40) is no_update
 
 
@@ -166,7 +166,7 @@ def test_interrupted_trip_shows_alert_and_stop_markers():
     svc.run_trip = lambda *a, **k: make_report(300)
     key, *_ = callbacks.compute(svc, "compute-btn", VALUES, "", None)
     r = callbacks.refresh(svc, key)
-    assert not r["status"] and str(r["map_alert"]).count("Trajet interrompu") == 1  # the alert is on the map only, once for the 3 scenarios
+    assert str(r["map_alert"]).count("Trajet interrompu") == 1 and "status" not in r  # the alert is on the map only, once for the 3 scenarios
     assert len(r["markers"]) >= 1 and "interrompu" in str(r["cards"]) and "interrompu" in str(r["map_alert"]) and "km" in str(r["summary"])
 
 
