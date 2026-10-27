@@ -56,11 +56,22 @@ def bounds_of(data: dict) -> list[list[float]]:
     return [[min(lats), min(lons)], [max(lats), max(lons)]]
 
 
+def short_of_arrival(s: dict, data: dict) -> bool:
+    """True if the scenario ends but under the wanted charge at arrival."""
+    target = data.get("arrival_soc")
+    return s["completed"] and target is not None and s["final_soc"] < target - 0.05
+
+
 def banners(entry: TripEntry, data: dict) -> list:
-    """Persistent alert: a single line for all interrupted scenarios (empty when the trip completes)."""
+    """Persistent alert, a single line: interrupted scenarios, else scenarios under the wanted arrival charge (empty otherwise)."""
     stopped = [s for s in data["scenarios"] if not s["completed"]]
     if not stopped:
-        return []
+        short = [s for s in data["scenarios"] if short_of_arrival(s, data)]
+        if not short:
+            return []
+        detail = " · ".join((f"{s['label']} : " if len(data["scenarios"]) > 1 else "") + f"{s['final_soc']:.1f} %" for s in short)
+        return [dbc.Alert([html.Strong(f"Arrivée sous la charge souhaitée ({data['arrival_soc']:g} %) : "), detail],
+                          color="warning", className="py-1 mb-0")]
     # the scenario name is shown only when several scenarios are displayed
     detail = " · ".join((f"{s['label']} : " if len(data["scenarios"]) > 1 else "") + f"km {s['alert']['km']}" for s in stopped)
     return [dbc.Alert([html.Strong(f"Trajet interrompu avant l'arrivée ({data['trip_km']:.1f} km) : "), detail,
@@ -120,18 +131,23 @@ def trip_summary(data: dict, duration_min: float) -> html.Div:
         className="mb-2")
 
 
+def _status_badge(s: dict, data: dict) -> dbc.Badge:
+    if not s["completed"]:
+        return dbc.Badge(f"interrompu km {s['alert']['km']}", color="danger")
+    return dbc.Badge("sous le souhaité", color="warning", text_color="dark") if short_of_arrival(s, data) else dbc.Badge("arrivée", color="success")
+
+
 def scenario_cards(data: dict) -> list:
     """One card per scenario, one column each (stacked on narrow screens); a single scenario is one plain line."""
     if len(data["scenarios"]) == 1:
         s = data["scenarios"][0]
-        status = dbc.Badge("arrivée", color="success") if s["completed"] else dbc.Badge(f"interrompu km {s['alert']['km']}", color="danger")
+        status = _status_badge(s, data)
         kwh_100 = f" · {s['avg_kwh_per_100km']:.1f} kWh/100 km" if s["avg_kwh_per_100km"] is not None else ""
         return [html.Div([f"{s['total_kwh']:.1f} kWh{kwh_100} · charge finale {s['final_soc']:.1f} % ({s['final_kwh']:.1f} kWh) ", status],
                          className="small")]
     cols = []
     for s in data["scenarios"]:
-        status = (dbc.Badge("arrivée", color="success") if s["completed"]
-                  else dbc.Badge(f"interrompu km {s['alert']['km']}", color="danger"))
+        status = _status_badge(s, data)
         cols.append(dbc.Col(dbc.Card(dbc.CardBody([
             html.Div([html.Span("● ", style={"color": s["color"]}), html.Strong(s["label"]), " ", status]),
             html.Div(f"{s['total_km']:.1f} km · {s['total_kwh']:.1f} kWh"

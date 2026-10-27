@@ -18,9 +18,9 @@ from ev_trip.presentation import build_charging_data, build_view_data
 
 log = logging.getLogger(__name__)
 FIELD_IDS = ("origin", "destination", "temp-c", "battery-kwh", "soc-slider", "min-slider", "max-detour", "use-overpass", "chargers",
-             "charge-window", *[charge_min_id(level.id) for level in CHARGER_LEVELS], "battery-health", "eco-extra", "eco-exit", "scenario", "profile")
+             "charge-window", *[charge_min_id(level.id) for level in CHARGER_LEVELS], "battery-health", "eco-extra", "eco-exit", "scenario", "profile", "arrival-on", "arrival-slider")
 FIELD_KEYS = ("origin", "destination", "temp_c", "battery_kwh", "start_soc", "min_soc", "max_detour_km", "use_overpass", "chargers",
-              "charge_window", *[charge_min_key(level.id) for level in CHARGER_LEVELS], "battery_health_pct", "eco_extra_pct", "eco_exit_variants", "scenario", "profile")
+              "charge_window", *[charge_min_key(level.id) for level in CHARGER_LEVELS], "battery_health_pct", "eco_extra_pct", "eco_exit_variants", "scenario", "profile", "arrival_on", "arrival_soc")
 INVALIDABLE = {"origin": "origin", "destination": "destination", "temp_c": "temp-c", "battery_kwh": "battery-kwh", "max_detour_km": "max-detour", "eco_extra_pct": "eco-extra", "eco_exit_variants": "eco-exit",
                **{charge_min_key(level.id): charge_min_id(level.id) for level in CHARGER_LEVELS}}
 
@@ -125,6 +125,10 @@ def register(app, service: TripService) -> None:
     @app.callback([Output(charge_min_id(level.id), "disabled") for level in CHARGER_LEVELS], Input("chargers", "value"))
     def on_chargers(selected):  # a duration can only be entered for a selected level
         return charge_inputs_disabled(selected)
+
+    @app.callback(Output("arrival-slider", "disabled"), Input("arrival-on", "value"))
+    def on_arrival(checked):  # the wanted arrival charge is editable only when its box is ticked
+        return not checked
 
     outputs = [Output("trip-key", "data"), Output("form-error", "children"), Output("url", "search"),
                *[Output(i, "value") for i in FIELD_IDS], *[Output(i, "invalid") for i in INVALIDABLE.values()]]

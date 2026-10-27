@@ -22,7 +22,9 @@ def charge_min_id(level_id: str) -> str:
 DEFAULTS = {
     "origin": "", "destination": "", "temp_c": 15.0, "battery_kwh": 52.0,
     "start_soc": 90.0, "min_soc": 10.0, "max_detour_km": 5.0, "use_overpass": True, "chargers": list(DEFAULT_CHARGERS),
-    "battery_health_pct": 100, "eco_extra_pct": 15.0, "eco_exit_variants": 2, "scenario": "moyenne", "profile": "fast", "charge_window": [15, 80], **{charge_min_key(level.id): None for level in CHARGER_LEVELS},
+    "battery_health_pct": 100, "eco_extra_pct": 15.0, "eco_exit_variants": 2, "scenario": "moyenne", "profile": "fast", "charge_window": [15, 80],
+    "arrival_on": [], "arrival_soc": 30.0,  # `arrival_on`: Checklist value (["on"] when the wanted arrival charge is used)
+    **{charge_min_key(level.id): None for level in CHARGER_LEVELS},
 }
 _RANGES = {  # field: (label, min, max, required)
     "temp_c": ("Température", -50, 60, True),
@@ -95,11 +97,17 @@ def request_from_values(values: dict) -> TripRequest:
         if not 0 < number <= MAX_CHARGE_MIN:
             raise FieldError(f"Durée {level.label} : la valeur doit être comprise entre 0 et {MAX_CHARGE_MIN} min.", (key,))
         minutes.append((level.id, number))
+    arrival = None
+    if values.get("arrival_on"):  # the wanted charge at arrival is used only when its box is ticked
+        try:
+            arrival = float(values.get("arrival_soc", DEFAULTS["arrival_soc"]))
+        except (TypeError, ValueError):
+            raise ValueError("Charge à l'arrivée : saisir une valeur numérique.") from None
     request = TripRequest(
         origin, destination, numbers["temp_c"], numbers["battery_kwh"], numbers["start_soc"],
         numbers["min_soc"], bool(values.get("use_overpass", True)), numbers["max_detour_km"], chargers,
         low, high, tuple(minutes), battery_health_pct=health, eco_extra_pct=eco_extra, eco_exit_variants=exits,
-        scenario=values.get("scenario") or DEFAULTS["scenario"], profile=values.get("profile") or DEFAULTS["profile"],
+        scenario=values.get("scenario") or DEFAULTS["scenario"], profile=values.get("profile") or DEFAULTS["profile"], arrival_soc=arrival,
     )
     request.vehicle()  # same check as the domain (capacity, percentages)
     return request
@@ -114,6 +122,8 @@ def to_query(request: TripRequest) -> str:
         "charge_from": f"{request.charge_from_pct:g}", "charge_to": f"{request.charge_to_pct:g}",
         "battery_health": f"{request.battery_health_pct:g}", "eco_extra": f"{request.eco_extra_pct:g}", "eco_exit": str(request.eco_exit_variants), "scenario": request.scenario, "profile": request.profile,
     }
+    if request.arrival_soc is not None:
+        params["arrival"] = f"{request.arrival_soc:g}"
     if request.charge_minutes:
         params["charge_minutes"] = ",".join(f"{level}:{minutes:g}" for level, minutes in request.charge_minutes)
     return "?" + urlencode(params)
@@ -151,6 +161,12 @@ def from_query(search: str | None) -> dict | None:
             values["eco_exit_variants"] = int(float(q["eco_exit"]))
         except ValueError:
             values["eco_exit_variants"] = q["eco_exit"]  # will be rejected by request_from_values
+    if "arrival" in q:
+        values["arrival_on"] = ["on"]
+        try:
+            values["arrival_soc"] = float(q["arrival"])
+        except ValueError:
+            values["arrival_soc"] = q["arrival"]  # will be rejected by request_from_values
     if "scenario" in q:
         values["scenario"] = q["scenario"]  # unknown names are rejected by TripRequest
     if "profile" in q:

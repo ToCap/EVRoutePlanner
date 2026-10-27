@@ -53,11 +53,11 @@ def _range_slider(id_, label, value):
     ], className="mb-3")
 
 
-def _input_slider(id_, label, value, lo=0):
-    """Percentage slider from `lo`; the value is shown in the input box at its end (no tooltip)."""
+def _input_slider(id_, label, value, lo=0, disabled=False):
+    """Percentage slider from `lo` (no label if `label` is None); the value is shown in the input box at its end (no tooltip)."""
     return html.Div([
-        html.Label(label, htmlFor=id_, className="form-label mb-2"),
-        dcc.Slider(id=id_, min=lo, max=100, step=1, value=value, marks={v: str(v) for v in range(lo, 101, 10)}),
+        *([html.Label(label, htmlFor=id_, className="form-label mb-2")] if label else []),
+        dcc.Slider(id=id_, min=lo, max=100, step=1, value=value, marks={v: str(v) for v in range(lo, 101, 10)}, disabled=disabled),
     ], className="mb-3")
 
 
@@ -73,6 +73,9 @@ def tab_trip():
         _accordion_item(
             "Charge", "charge",
             _input_slider("soc-slider", "Charge au départ", d["start_soc"]),
+            dcc.Checklist(id="arrival-on", options=[{"label": html.Span("Charge à l'arrivée", className="form-label mb-0", style={"color": "var(--bs-body-color)"}), "value": "on"}], value=d["arrival_on"],
+                          className="mb-1", labelStyle={"fontWeight": "normal", "color": "inherit"}),
+            _input_slider("arrival-slider", None, d["arrival_soc"], disabled=not d["arrival_on"]),
             _input_slider("min-slider", "Seuil d'alerte (minimum)", d["min_soc"]),
         ),
     ]

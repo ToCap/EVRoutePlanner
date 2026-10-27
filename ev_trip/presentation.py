@@ -114,6 +114,7 @@ def build_view_data(report: TripReport) -> dict:
         "breakdown": breakdown,
         "ranges": ranges,
         "min_soc": ref.vehicle.min_soc_pct,
+        "arrival_soc": ref.vehicle.arrival_soc_pct,
         "trip_km": round(ref.trip_km, 2),
         "start": [round(start.lat, 5), round(start.lon, 5)],
         "end": [round(end.lat, 5), round(end.lon, 5)],

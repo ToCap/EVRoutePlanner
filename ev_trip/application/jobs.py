@@ -51,6 +51,7 @@ class TripRequest:
     eco_exit_variants: int = 2  # consumption profile: motorway exits tried before the fast route's own exit (0-2)
     scenario: str = DEFAULT_SCENARIO  # the one consumption scenario shown and used (optimiste / moyenne / pessimiste)
     profile: str = "fast"  # profile shown first (a display choice: not part of the result key)
+    arrival_soc: float | None = None  # wanted charge at arrival (%), None = only the minimum is required
 
     def __post_init__(self) -> None:
         known = [level.id for level in CHARGER_LEVELS]
@@ -66,6 +67,8 @@ class TripRequest:
             raise ValueError("Sorties étudiées : la valeur doit être comprise entre 0 et 2.")
         if self.eco_extra_pct < 0:
             raise ValueError("Écart de durée : la valeur doit être >= 0 %.")
+        if self.arrival_soc is not None and not self.min_soc <= self.arrival_soc <= 100:
+            raise ValueError("Charge à l'arrivée : la valeur doit être comprise entre le seuil minimum et 100 %.")
         if not 0 < self.battery_health_pct <= 100:
             raise ValueError("Santé de la batterie : la valeur doit être > 0 et <= 100 %.")
         timed = dict(self.charge_minutes)
@@ -84,7 +87,7 @@ class TripRequest:
         return hashlib.sha1(json.dumps(params, sort_keys=True).encode("utf-8")).hexdigest()
 
     def vehicle(self) -> VehicleParams:
-        return VehicleParams(self.battery_kwh * self.battery_health_pct / 100.0, self.start_soc, self.min_soc)  # real capacity
+        return VehicleParams(self.battery_kwh * self.battery_health_pct / 100.0, self.start_soc, self.min_soc, self.arrival_soc)  # real capacity
 
     @property
     def wants_charging(self) -> bool:
