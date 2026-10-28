@@ -7,6 +7,7 @@ import requests
 from dash import Input, Output, State, callback_context, no_update
 import dash_bootstrap_components as dbc
 
+from ev_trip.application.messages import user_message
 from interfaces.dash_ui import components as ui
 from interfaces.dash_ui.layout import BADGE_HIDDEN, BADGE_SHOWN, NOTIF_BTN_HIDDEN, NOTIF_BTN_SHOWN, SPINNER_HIDDEN, SPINNER_SHOWN
 from interfaces.dash_ui.params import FieldError, charge_min_id, charge_min_key, from_query, request_from_values, to_query
@@ -44,7 +45,8 @@ def compute(service: TripService, trigger: str | None, values: dict, search: str
     except ValueError as exc:
         return no_update, dbc.Alert(str(exc), color="danger", className="py-1 mb-0"), no_update, None, set()
     except (EVTripError, requests.RequestException) as exc:
-        return no_update, dbc.Alert(str(exc), color="danger", className="py-1 mb-0"), no_update, None, set()
+        log.warning("Calcul impossible : %s", exc)  # the full error (URL included) stays in the log
+        return no_update, dbc.Alert(user_message(exc), color="danger", className="py-1 mb-0"), no_update, None, set()
     query = to_query(request)
     if from_url and key == current_key:
         return no_update, "", no_update, values, set()

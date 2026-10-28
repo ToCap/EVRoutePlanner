@@ -308,7 +308,7 @@ def test_exit_search_warns_only_when_every_attempt_failed():
     jobs.pop()()
     done = svc.get(key)
     assert sleeps == [2.0, 5.0] and done.report.route.duration_min == 200 and done.state == DONE  # the trip stays usable
-    assert any("502 (serveur surchargé) : variantes de sortie non étudiées." in w for w in done.report.warnings)
+    assert any("Variantes de sortie non étudiées (502 (serveur surchargé))." in w for w in done.report.warnings)
 
 
 def test_add_exit_variants_ranks_the_variants_with_the_existing_routes(monkeypatch):

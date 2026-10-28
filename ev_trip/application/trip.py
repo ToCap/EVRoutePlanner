@@ -11,6 +11,7 @@ from ev_trip.domain.geo import resample
 from ev_trip.domain.models import MicroSegment, Point, Route, Slice, VehicleParams
 from ev_trip.domain.ports import GeocodeFn, RoadClassifier, RouteFn
 from ev_trip.application.exit_variants import exit_variants
+from ev_trip.application.messages import user_message
 from ev_trip.domain.consumption import slice_energy_kwh
 from ev_trip.domain.route_profiles import ProfileReports, choose_profiles, distinct_indices
 from ev_trip.domain.road_classification import classify_by_speed
@@ -162,7 +163,8 @@ def run_trip_profiles(
             if not found:
                 notes.append("Aucune variante de sortie d'autoroute trouvée.")
         except EVTripError as exc:
-            notes.append(f"{exc} : variantes de sortie non étudiées.")
+            log.warning("Recherche des sorties d'autoroute impossible : %s", exc)
+            notes.append(f"Variantes de sortie non étudiées ({user_message(exc)}).")
     routes = [routes[i] for i in distinct_indices([(r.distance_km, r.duration_min) for r in routes])]
     reports = [_estimate(origin, destination, r, temp_c, vehicle, cfg, classifier) for r in routes]
     for r in reports:

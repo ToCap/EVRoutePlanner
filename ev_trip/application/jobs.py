@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field, replace
 from typing import Callable, Protocol
 
 from ev_trip.application.charging import plan_charging
+from ev_trip.application.messages import user_message
 from ev_trip.application.trip import add_exit_variants, refine_trip, run_trip, run_trip_profiles
 from ev_trip.domain.charging import ChargingPlan, TariffTable
 from ev_trip.domain.config import CHARGER_LEVELS, DEFAULT_CHARGERS, DEFAULT_SCENARIO, SCENARIOS, ConsumptionConfig
@@ -239,7 +240,7 @@ class TripService:
             return self.plan(for_planning(report), entry.max_detour_km, tariffs=self.tariffs(), chargers=entry.chargers, **timed), []
         except Exception as exc:
             log.exception("Recherche des bornes impossible")
-            return None, [f"bornes : {exc}"]
+            return None, [user_message(exc)]
 
     def _finish(self, key: str, entry: TripEntry, errors: list[str], **changes) -> None:
         """Publishes a task result on the latest entry; the state stays `refining` while another task runs."""
@@ -270,7 +271,7 @@ class TripService:
                 refined = True
         except Exception as exc:  # the task must never stop without publishing its state
             log.exception("Affinage du trajet impossible")
-            errors.append(f"affinage : {exc}")
+            errors.append(user_message(exc))
         if note:  # added after the refinement, which rebuilds the warnings
             report.warnings.append(note)
         changes: dict = {"report": report, "refined": refined}
@@ -292,7 +293,7 @@ class TripService:
                 last = exc
                 if attempt < len(self.retry_delays):
                     self.sleep(self.retry_delays[attempt])
-        return profiles, f"{last} : variantes de sortie non étudiées."
+        return profiles, f"Variantes de sortie non étudiées ({user_message(last)})."
 
 
 def _default_run_trip(*args, **kwargs) -> TripReport:

@@ -1,9 +1,11 @@
 """Charging-station use case: search, real detour (routing), scoring and ranking."""
 from __future__ import annotations
 
+import logging
 import time
 from typing import Callable
 
+from ev_trip.application.messages import user_message
 from ev_trip.domain.charging import (
     ChargingPlan, Station, StationSuggestion, TariffTable, apply_charge_profile, apply_chargers, detour_anchors_km,
     detour_from_via,
@@ -16,6 +18,8 @@ from ev_trip.domain.models import Point, Route
 from ev_trip.domain.ports import PathFn, StationSource
 from ev_trip.domain.trip_report import TripReport
 from dataclasses import replace
+
+log = logging.getLogger(__name__)
 
 
 def osrm_detour(
@@ -92,7 +96,8 @@ def plan_charging(
         else:
             found = stations.find(route, radius)
     except (RoadClassificationError, EVTripError) as exc:
-        plan.warnings.append(f"Recherche des bornes impossible : {exc}")
+        log.warning("Recherche des bornes impossible : %s", exc)
+        plan.warnings.append(f"Recherche des bornes impossible ({user_message(exc)}).")
         return plan
     plan.found = len(found)
     if chargers:
@@ -127,7 +132,8 @@ def plan_charging(
                 estimated = False
             except (RoutingError, EVTripError) as exc:
                 osrm_ok = False
-                plan.warnings.append(f"Détours estimés à vol d'oiseau (OSRM indisponible : {exc}).")
+                log.warning("Détours : OSRM indisponible : %s", exc)
+                plan.warnings.append(f"Détours estimés à vol d'oiseau (OSRM indisponible : {user_message(exc)}).")
         if d_km > max_detour_km:
             continue
         results.append(
