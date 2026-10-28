@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-from urllib.parse import parse_qs, urlencode
 
 import requests
 from dash import Input, Output, State, callback_context, no_update
@@ -52,36 +51,29 @@ def compute(service: TripService, trigger: str | None, values: dict, search: str
     return key, "", (no_update if from_url else query), (values if from_url else None), set()
 
 
-def refresh(service: TripService, key: str | None, profile: str = "fast"):
-    """Renders all panels for a route profile; returns a dict per output + polling stop."""
+def refresh(service: TripService, key: str | None):
+    """Renders all panels of a trip; returns a dict per output + polling stop."""
     empty = {"route": [], "markers": [], "map_alert": [], "notifs": [], "summary": no_update, "cards": no_update,
-             "graph": ui.charge_figure(), "detail": [], "stations": [], "poll_disabled": True, "stage": no_update,
-             "profile_options": no_update, "profile_style": {"display": "none"}, "profile_note": ""}
+             "graph": ui.charge_figure(), "detail": [], "stations": [], "poll_disabled": True, "stage": no_update}
     if not key:
         return empty
     entry = service.get(key)
     if entry is None:
         expired = [dbc.Alert("Résultat expiré : relancer le calcul.", color="warning", className="py-1 mb-0")]
         return {**empty, "map_alert": expired}
-    service.ensure_charging(key, profile)  # searches the stations of this profile if not done yet (background task)
-    entry = service.get(key) or entry
-    profile = entry.profile_of(profile)
-    report, charging = entry.report_for(profile), entry.charging_for(profile)
+    report, charging = entry.report, entry.charging
     data = build_view_data(report)
     if charging is not None:
         data["charging"] = build_charging_data(charging)
-    other = build_view_data(entry.report_for("fast" if profile == "eco" else "eco")) if entry.eco_report is not None else None
     requested = entry.max_detour_km > 0
     route = ui.route_layers(data)
     return {
-        "route": ([ui.alt_route_layer(other)] if other else []) + route, "markers": ui.marker_layers(data),
+        "route": route, "markers": ui.marker_layers(data),
         "map_alert": ui.banners(entry, data), "notifs": ui.notifications(entry, key),
         "summary": ui.trip_summary(data, report.route.duration_min), "cards": ui.scenario_cards(data),
-        "graph": ui.charge_figure(data, other), "detail": ui.detail_table(data),
+        "graph": ui.charge_figure(data), "detail": ui.detail_table(data),
         "stations": ui.stations_table(data.get("charging"), requested),
         "poll_disabled": entry.state != REFINING, "stage": entry.stage or "Calcul en cours…",
-        "profile_options": ui.profile_options(entry), "profile_style": {} if other else {"display": "none"},
-        "profile_note": "" if other else "Itinéraire unique (profils rapide et consommation identiques)",
     }
 
 
@@ -90,15 +82,6 @@ def notify(incoming: list[dict] | None, history: list[dict] | None):
     kept, fresh = ui.merge_notifications(history, incoming or [])
     return (ui.notification_toasts(fresh) if fresh else no_update, kept, ui.notification_list(kept),
             NOTIF_BTN_SHOWN if kept else NOTIF_BTN_HIDDEN, str(len(kept)))
-
-
-def with_profile(search: str | None, profile: str | None) -> str:
-    """Query string with its `profile` parameter set (unchanged when the link holds no trip)."""
-    query = parse_qs((search or "").lstrip("?"), keep_blank_values=True)
-    if not query.get("origin") or not profile:
-        return no_update
-    query["profile"] = [profile]
-    return "?" + urlencode(query, doseq=True)
 
 
 def map_bounds(service: TripService, key: str | None):
@@ -166,18 +149,14 @@ def register(app, service: TripService) -> None:
         Output("trip-summary", "children"), Output("scenario-cards", "children"), Output("charge-graph", "figure"), Output("detail-table", "children"),
         Output("stations-table", "children"), Output("poll", "disabled"), Output("refine-badge", "style"),
         Output("map-alert", "children"), Output("notif-new", "data"),
-        Output("profile", "options"), Output("profile", "style"), Output("profile-note", "children"), Output("refine-text", "children"),
-        Input("trip-key", "data"), Input("poll", "n_intervals"), Input("profile", "value"),
+        Output("refine-text", "children"),
+        Input("trip-key", "data"), Input("poll", "n_intervals"),
     )
-    def on_refresh(key, _n, profile):
-        r = refresh(service, key, profile)
+    def on_refresh(key, _n):
+        r = refresh(service, key)
         return (r["route"], r["markers"], r["summary"], r["cards"], r["graph"], r["detail"], r["stations"], r["poll_disabled"],
                 BADGE_HIDDEN if r["poll_disabled"] else BADGE_SHOWN, r["map_alert"], r["notifs"],
-                r["profile_options"], r["profile_style"], r["profile_note"], r["stage"])
-
-    @app.callback(Output("url", "search", allow_duplicate=True), Input("profile", "value"), State("url", "search"), prevent_initial_call=True)
-    def on_profile(profile, search):  # keeps the shared link in line with the displayed profile
-        return with_profile(search, profile)
+                r["stage"])
 
     @app.callback(
         Output("toasts", "children"), Output("notif-history", "data"), Output("notif-list", "children"),

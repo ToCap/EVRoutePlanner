@@ -61,6 +61,9 @@ def _input_slider(id_, label, value, lo=0, disabled=False):
     ], className="mb-3")
 
 
+PROFILE_OPTIONS = [{"label": "Vitesse", "value": "fast"}, {"label": "Consommation", "value": "eco"}]  # route optimisation
+
+
 def tab_trip():
     d = DEFAULTS
     items = [
@@ -68,6 +71,11 @@ def tab_trip():
             "Itinéraire", "route",
             _group("Départ", dbc.Input(id="origin", type="text", value=d["origin"], placeholder="Paris", debounce=True)),
             _group("Destination", dbc.Input(id="destination", type="text", value=d["destination"], placeholder="Saint-Lô", debounce=True)),
+            html.Label("Optimisation", htmlFor="profile", className="form-label"),
+            dcc.Dropdown(id="profile", options=PROFILE_OPTIONS, value=d["profile"], clearable=False, searchable=False, className="mb-2"),
+        ),
+        _accordion_item(
+            "Environnement", "environment",
             _group("Température", _number("temp-c", d["temp_c"], -50, 60), "°C"),
         ),
         _accordion_item(
@@ -112,7 +120,7 @@ def _accordion_item(title, item_id, *children):
     return dbc.AccordionItem(list(children), title=title, item_id=item_id)
 
 
-TRIP_OPEN = ["route", "charge"]  # both expanded at load
+TRIP_OPEN = ["route", "environment", "charge"]  # all expanded at load
 ENERGY_OPEN = ["battery", "recharge"]  # expanded at load; "consumption" is a placeholder, collapsed
 
 
@@ -222,12 +230,6 @@ def map_view(tile_url: str, attribution: str):
 
 def routes_panel():
     return html.Div([
-        html.Div([
-            dbc.RadioItems(id="profile", options=[{"label": "Rapide", "value": "fast"}, {"label": "Consommation", "value": "eco"}],
-                           value=DEFAULTS["profile"], inline=True, className="btn-group", inputClassName="btn-check",
-                           labelClassName="btn btn-outline-primary btn-sm", labelCheckedClassName="active"),
-            html.Span(id="profile-note", className="small text-muted"),
-        ], className="mb-2"),
         dbc.Tabs([
             dbc.Tab(html.Div([html.Div(id="trip-summary"), html.Div(id="scenario-cards")], className="pt-2"),
                     label="Trajet calculé", tab_id="t-trip"),

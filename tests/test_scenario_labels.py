@@ -28,7 +28,6 @@ def test_single_scenario_is_one_line_not_a_card():
 def test_single_scenario_chart_and_table_do_not_name_it():
     s = {"key": "moyenne", "label": "Moyenne", "color": "#000", "chart": [{"x": 0, "y": 90}, {"x": 100, "y": 50}]}
     data = {"scenarios": [s], "trip_km": 100.0, "min_soc": 10.0, "rows": []}
-    fig = ui.charge_figure(data, data)
-    assert [t.name for t in fig.data] == ["Autre profil", "Charge restante", "Seuil minimum"]
+    assert [t.name for t in ui.charge_figure(data).data] == ["Charge restante", "Seuil minimum"]
     assert "Moyenne" not in str(ui.detail_table(data))
     assert "Moyenne" in str(ui.detail_table({**data, "scenarios": [s, {**s, "label": "Optimiste"}]}))

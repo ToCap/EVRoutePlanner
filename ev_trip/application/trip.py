@@ -190,7 +190,8 @@ def add_exit_variants(
     routes = [r.route for r in base] + found
     keep = [i for i in distinct_indices([(r.distance_km, r.duration_min) for r in routes]) if i >= len(base)]
     if not keep:
-        fast.warnings.append("Aucune variante de sortie d'autoroute trouvée.")
+        for r in {id(fast): fast, id(profiles.eco): profiles.eco}.values():  # the displayed route is the consumption one
+            r.warnings.append("Aucune variante de sortie d'autoroute trouvée.")
         return profiles
     first, classifier = fast.simulation, classifier or OverpassRoadClassifier()
     reports = base + [_estimate(fast.origin, fast.destination, routes[i], first.temp_c, first.vehicle, fast.config, classifier) for i in keep]
