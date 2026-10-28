@@ -31,3 +31,13 @@ def test_single_scenario_chart_and_table_do_not_name_it():
     assert [t.name for t in ui.charge_figure(data).data] == ["Charge restante", "Seuil minimum"]
     assert "Moyenne" not in str(ui.detail_table(data))
     assert "Moyenne" in str(ui.detail_table({**data, "scenarios": [s, {**s, "label": "Optimiste"}]}))
+
+
+def test_detail_table_has_a_narrow_index_column_and_content_sized_table():
+    s = {"key": "moyenne", "label": "Moyenne", "color": "#000"}
+    row = {"index": 3, "type": "autoroute", "start_km": 10.0, "end_km": 20.0,
+           "cells": [{"cons": 20.0, "kwh": 2.0, "soc": 80.0, "stop": False, "stop_km": 20.0}]}
+    table = ui.detail_table({"scenarios": [s], "rows": [row]}).children
+    assert "w-auto" in table.className
+    index_head = table.children[0].children[-1].children[0]  # the "#" header of the last header row
+    assert index_head.children == "#" and index_head.style["width"] == "2.5rem" and "text-center" in index_head.className

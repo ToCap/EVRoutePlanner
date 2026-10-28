@@ -174,24 +174,29 @@ def charge_figure(data: dict | None = None) -> go.Figure:
 
 
 def detail_table(data: dict) -> html.Div:
+    """Slices table: columns sized to their content (narrow index, left-aligned type, right-aligned numbers)."""
+    narrow = {"className": "text-center text-muted px-1", "style": {"width": "2.5rem"}}  # slice number: 1 to 3 digits
     head1 = html.Tr([html.Th(colSpan=4)] + [
         html.Th(s["label"], colSpan=3, style={"textAlign": "center", "borderBottom": f"3px solid {s['color']}"})
         for s in data["scenarios"]])
     heads = [head1] if len(data["scenarios"]) > 1 else []  # the scenario row is useless when only one is shown
-    head2 = html.Tr([html.Th(h) for h in ("#", "début km", "fin km", "type")]
-                    + [html.Th(h) for _ in data["scenarios"] for h in ("kWh/100", "kWh", "charge %")])
+    head2 = html.Tr([html.Th("#", **narrow), html.Th("début km", className="px-3"), html.Th("fin km", className="px-3"),
+                     html.Th("type", className="px-3 text-start")]
+                    + [html.Th(h, className="px-3 text-nowrap") for _ in data["scenarios"] for h in ("kWh/100", "kWh", "charge %")])
     body = []
     for r in data["rows"]:
-        cells = [html.Td(r["index"]), html.Td(f"{r['start_km']:.1f}"), html.Td(f"{r['end_km']:.1f}"), html.Td(r["type"])]
+        cells = [html.Td(r["index"], **narrow), html.Td(f"{r['start_km']:.1f}", className="px-3"),
+                 html.Td(f"{r['end_km']:.1f}", className="px-3"), html.Td(r["type"], className="px-3 text-start")]
         for c in r["cells"]:
             if c is None:
-                cells += [html.Td("–", className="text-muted text-center")] * 3
+                cells += [html.Td("–", className="text-muted text-center px-3")] * 3
             else:
-                stop = {"className": "text-danger fw-bold", "title": f"Arrêt au km {c['stop_km']}"} if c["stop"] else {}
-                cells += [html.Td(f"{c['cons']:.1f}"), html.Td(f"{c['kwh']:.2f}"),
+                stop = {"className": "text-danger fw-bold px-3 text-nowrap", "title": f"Arrêt au km {c['stop_km']}"} if c["stop"] else {"className": "px-3"}
+                cells += [html.Td(f"{c['cons']:.1f}", className="px-3"), html.Td(f"{c['kwh']:.2f}", className="px-3"),
                           html.Td(f"{c['soc']:.1f}" + (" ⛔" if c["stop"] else ""), **stop)]
         body.append(html.Tr(cells))
-    return html.Div(dbc.Table([html.Thead([*heads, head2]), html.Tbody(body)], size="sm", striped=True, responsive=True, className="text-end mb-0"))
+    return html.Div(dbc.Table([html.Thead([*heads, head2]), html.Tbody(body)], size="sm", striped=True, responsive=True,
+                              className="text-end mb-0 w-auto"))
 
 
 def stations_table(charging: dict | None, requested: bool) -> html.Div:
