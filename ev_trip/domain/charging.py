@@ -509,3 +509,4 @@ class ChargingPlan:
     max_detour_km: float
     need_level: str
     warnings: list[str] = field(default_factory=list)
+    stops: list = field(default_factory=list)  # chained recharge stops (`ChargeStop`), only when a recharge is useful

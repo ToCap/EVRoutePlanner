@@ -210,6 +210,7 @@ def stations_table(charging: dict | None, requested: bool) -> html.Div:
     warns = [dbc.Alert(w, color="light", className="py-1 mb-1") for w in charging["warnings"]]
     if not charging["rows"]:
         return html.Div([intro, *warns])
+    plan = stops_table(charging.get("stops") or [])
     head = html.Tr([html.Th(h) for h in ("#", "note", "borne", "type", "km", "détour", "à l'arrivée", "recharge", "prix", "détail")])
     body = []
     for b in charging["rows"]:
@@ -230,4 +231,21 @@ def stations_table(charging: dict | None, requested: bool) -> html.Div:
         ], className="" if b["reachable"] else "text-danger"))
     note = html.P("Note /100 : détour, besoin de recharge, durée de recharge, prix (prix inconnu = neutre 50). "
                   "Vert ≥ 70, orange 40–70, gris < 40. « ~ » : détour estimé à vol d'oiseau.", className="small text-muted mt-1 mb-0")
-    return html.Div([intro, *warns, dbc.Table([html.Thead(head), html.Tbody(body)], size="sm", striped=True, className="mb-0"), note])
+    table = dbc.Table([html.Thead(head), html.Tbody(body)], size="sm", striped=True, className="mb-0")
+    if plan is None:
+        return html.Div([intro, *warns, table, note])
+    return html.Div([intro, plan, *warns, html.Div("Toutes les bornes", className="fw-bold small mt-2"), table, note])
+
+
+def stops_table(stops: list[dict]) -> html.Div | None:
+    """Retained recharge stops, in trip order; None when no recharge is planned."""
+    if not stops:
+        return None
+    head = html.Tr([html.Th(h) for h in ("#", "borne", "km", "durée de charge", "charge avant", "charge après")])
+    body = [html.Tr([
+        html.Td(i), html.Td(s["name"] + (f" · {s['power_kw']:g} kW" if s["power_kw"] else "")), html.Td(f"{s['km']:.1f}"),
+        html.Td("durée inconnue" if s["charge_min"] is None else f"{s['charge_min']:.0f} min"),
+        html.Td(f"{s['soc_arrival']:.0f} %"), html.Td(f"{s['soc_after']:.0f} %"),
+    ]) for i, s in enumerate(stops, 1)]
+    return html.Div([html.Div("Arrêts de recharge", className="fw-bold small"),
+                     dbc.Table([html.Thead(head), html.Tbody(body)], size="sm", striped=True, className="mb-0")])

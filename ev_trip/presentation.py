@@ -164,7 +164,18 @@ def build_charging_data(plan) -> dict:
                 "lon": round(st.lon, 5),
             }
         )
+    stops = [
+        {
+            "name": c.suggestion.station.label, "km": r(c.suggestion.route_km),
+            "charge_type": c.suggestion.station.charge_type or "?", "power_kw": c.suggestion.station.power_kw,
+            "soc_arrival": r(c.soc_arrival_pct, 0), "soc_after": r(c.soc_after_pct, 0),
+            "add_kwh": r(c.add_kwh), "charge_min": r(c.charge_min, 0), "cost": r(c.cost_eur, 2),
+            "detour_km": r(c.suggestion.detour_km), "score": round(c.score),
+        }
+        for c in getattr(plan, "stops", [])
+    ]
     return {
+        "stops": stops,
         "rows": rows,
         "found": plan.found,
         "evaluated": plan.evaluated,

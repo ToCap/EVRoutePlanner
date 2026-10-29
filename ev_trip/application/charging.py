@@ -12,6 +12,7 @@ from ev_trip.domain.charging import (
     estimate_detour, need_level, score_station, station_compatible,
 )
 from ev_trip.domain.config import ChargingConfig
+from ev_trip.domain.recharge import plan_stops
 from ev_trip.domain.errors import EVTripError, RoadClassificationError, RoutingError
 from ev_trip.domain.geo import cumulative_km, nearest_on_route, point_at_km
 from ev_trip.domain.models import Point, Route
@@ -142,4 +143,7 @@ def plan_charging(
 
     results.sort(key=lambda s: (s.score, -s.detour_km), reverse=True)
     plan.suggestions = results[: cc.max_results]
+    if level != "optionnelle":  # a recharge is useful: chain the best portion/station couples
+        plan.stops, stop_warns = plan_stops(report, results, max_detour_km, tariffs)
+        plan.warnings += stop_warns
     return plan
