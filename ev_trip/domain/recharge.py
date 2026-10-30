@@ -23,6 +23,7 @@ class ChargeStop:
     station_score: float  # 0-100, detour / charge duration / price
     score: float  # couple score = portion score x station score / 100
     cost_eur: float | None
+    soc_leave_pct: float = 0.0  # charge when back on the route (after the return leg of the detour)
 
 
 def portion_score(soc_pct: float, min_pct: float, high_pct: float) -> float:
@@ -48,7 +49,8 @@ def plan_stops(report: TripReport, suggestions: list[StationSuggestion], max_det
                tariffs: TariffTable | None = None) -> tuple[list[ChargeStop], list[str]]:
     """Chained stops until the arrival; (stops, warnings). Empty when no recharge is useful."""
     cc = report.config.charging
-    moy, pess = report.simulation, report.simulations["pessimiste"]
+    moy = report.simulation  # the configured scenario is the reference; the pessimistic one stays the safety check
+    ref = report.config.scenario
     veh = moy.vehicle
     cap, temp, cfg, slices = veh.battery_kwh, moy.temp_c, report.config, report.slices
     total_km = moy.trip_km
@@ -60,7 +62,7 @@ def plan_stops(report: TripReport, suggestions: list[StationSuggestion], max_det
         return soc - 100.0 * energy_between(slices, cfg, temp, scenario, a, b) / cap
 
     def finishes(pos: float, soc: float) -> bool:
-        return (soc_after_leg(soc, pos, total_km, "moyenne") >= floor - 1e-6
+        return (soc_after_leg(soc, pos, total_km, ref) >= floor - 1e-6
                 and soc_after_leg(soc, pos, total_km, "pessimiste") >= floor - 1e-6)
 
     def best_couple(pos: float, soc: float):
@@ -70,13 +72,13 @@ def plan_stops(report: TripReport, suggestions: list[StationSuggestion], max_det
             if sug.route_km <= pos + 0.5:
                 continue
             half = sug.detour_kwh / 2.0
-            arr = soc_after_leg(soc, pos, sug.route_km, "moyenne") - 100.0 * half / cap
+            arr = soc_after_leg(soc, pos, sug.route_km, ref) - 100.0 * half / cap
             arr_p = soc_after_leg(soc, pos, sug.route_km, "pessimiste") - 100.0 * half / cap
             if arr_p < reserve - 1e-6 or arr < reserve - 1e-6:
                 continue
             sl = next((s for s in slices if s.start_km < sug.route_km <= s.end_km + _EPS), None)
             end = sl.end_km if sl else sug.route_km
-            p_score = portion_score(soc_after_leg(soc, pos, end, "moyenne"), veh.min_soc_pct, high)
+            p_score = portion_score(soc_after_leg(soc, pos, end, ref), veh.min_soc_pct, high)
             minutes = _charge_time_min(sug.station, max(0.0, cap * (high - arr) / 100.0), cc)
             s_score = _station_score(sug, minutes, max_detour_km, report, tariffs)
             couple = p_score * s_score / 100.0
@@ -101,7 +103,7 @@ def plan_stops(report: TripReport, suggestions: list[StationSuggestion], max_det
         leave_high = high - 100.0 * half / cap
         if finishes(sug.route_km, leave_high):
             need = floor + max(100.0 * energy_between(slices, cfg, temp, s, sug.route_km, total_km) / cap
-                               for s in ("moyenne", "pessimiste"))
+                               for s in (ref, "pessimiste"))
         else:
             nxt = best_couple(sug.route_km, leave_high)
             if nxt is None or nxt[0] <= _EPS:
@@ -116,15 +118,34 @@ def plan_stops(report: TripReport, suggestions: list[StationSuggestion], max_det
         minutes = _charge_time_min(sug.station, add_kwh, cc)
         price, _ = resolve_price(sug.station, tariffs)
         cost = None if price is None else add_kwh / cc.charge_efficiency * price
-        stops.append(ChargeStop(sug, arr, after, add_kwh, minutes, p_score, s_score, couple, cost))
         pos, soc = sug.route_km, after - 100.0 * half / cap
+        stops.append(ChargeStop(sug, arr, after, add_kwh, minutes, p_score, s_score, couple, cost, soc))
     return stops, warns
 
 
 def final_soc_with_stops(report: TripReport, stops: list[ChargeStop]) -> float:
-    """Charge (%) on arrival in the mean scenario once every stop is made."""
+    """Charge (%) on arrival in the configured scenario once every stop is made."""
     moy = report.simulation
     last = stops[-1]
-    left = last.soc_after_pct - 100.0 * last.suggestion.detour_kwh / 2.0 / moy.vehicle.battery_kwh
-    return left - 100.0 * energy_between(report.slices, report.config, moy.temp_c, "moyenne",
-                                         last.suggestion.route_km, moy.trip_km) / moy.vehicle.battery_kwh
+    return last.soc_leave_pct - 100.0 * energy_between(report.slices, report.config, moy.temp_c, report.config.scenario,
+                                                       last.suggestion.route_km, moy.trip_km) / moy.vehicle.battery_kwh
+
+
+def curve_with_stops(report: TripReport, stops: list[ChargeStop]) -> list[tuple[float, float]]:
+    """(km, charge %) of the configured scenario with every stop: vertical jump at each station, slice ends elsewhere."""
+    sim = report.simulation
+    cap = sim.vehicle.battery_kwh
+    by_km = {c.suggestion.route_km: c for c in stops}
+    kms = sorted({sl.end_km for sl in report.slices} | set(by_km))
+    pts = [(0.0, sim.vehicle.start_soc_pct)]
+    pos, soc = 0.0, sim.vehicle.start_soc_pct
+    for km in kms:
+        soc -= 100.0 * energy_between(report.slices, report.config, sim.temp_c, report.config.scenario, pos, km) / cap
+        if km in by_km:
+            c = by_km[km]
+            pts += [(km, c.soc_arrival_pct), (km, c.soc_after_pct)]
+            soc = c.soc_leave_pct
+        else:
+            pts.append((km, soc))
+        pos = km
+    return pts

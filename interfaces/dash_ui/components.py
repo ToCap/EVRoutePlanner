@@ -183,7 +183,15 @@ def charge_figure(data: dict | None = None) -> go.Figure:
     fig = go.Figure()
     single = bool(data) and len(data["scenarios"]) == 1  # one scenario: its name is not repeated
     if data:
+        plan = data.get("charging") or {}
+        with_stops = bool(plan.get("covered") and plan.get("curve") and single)  # the plan follows the single configured scenario
         for s in data["scenarios"]:
+            if with_stops:  # without recharge: dotted grey, the recharge curve takes the scenario color
+                fig.add_scatter(x=[p["x"] for p in s["chart"]], y=[p["y"] for p in s["chart"]], mode="lines", name="Sans recharge",
+                                line={"color": "#999", "dash": "dot"})
+                fig.add_scatter(x=[p["x"] for p in plan["curve"]], y=[p["y"] for p in plan["curve"]], mode="lines+markers",
+                                name="Avec recharge", line={"color": s["color"]}, marker={"size": 4})
+                continue
             fig.add_scatter(x=[p["x"] for p in s["chart"]], y=[p["y"] for p in s["chart"]], mode="lines+markers",
                             name="Charge restante" if single else s["label"], line={"color": s["color"]}, marker={"size": 4})
         fig.add_scatter(x=[0, data["trip_km"]], y=[data["min_soc"]] * 2, mode="lines", name="Seuil minimum",

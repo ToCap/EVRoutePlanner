@@ -512,4 +512,5 @@ class ChargingPlan:
     stops: list = field(default_factory=list)  # chained recharge stops (`ChargeStop`), only when a recharge is useful
     covered: bool = False  # the stops let the trip reach its arrival
     final_soc_pct: float | None = None  # charge on arrival with the stops (mean), when covered
+    curve: list = field(default_factory=list)  # (km, charge %) with the stops, when covered
     charge_total_min: float | None = None  # total charge time of the stops, None if one is unknown

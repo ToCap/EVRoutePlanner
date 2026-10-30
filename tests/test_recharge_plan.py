@@ -89,3 +89,35 @@ def test_interrupted_badge_is_not_red_when_the_plan_covers_the_trip():
     assert ui._status_badge(s, data).color == "danger"
     covered = ui._status_badge(s, {**data, "charging": {"covered": True}})
     assert covered.color == "warning" and covered.children == "sans recharge"
+
+
+def test_curve_jumps_at_each_stop_and_ends_at_the_arrival_charge():
+    from ev_trip.domain.recharge import curve_with_stops, final_soc_with_stops
+
+    report = _report(260.0)
+    stops, _ = plan_stops(report, [_sug(150)], 5.0)
+    pts = curve_with_stops(report, stops)
+    jump = [(a, b) for a, b in zip(pts, pts[1:]) if a[0] == b[0] == 150]
+    assert jump and jump[0][1][1] > jump[0][0][1]
+    assert pts[0] == (0.0, 100.0) and abs(pts[-1][1] - final_soc_with_stops(report, stops)) < 1e-6 and pts[-1][0] == 260.0
+
+
+def test_plan_follows_the_configured_scenario():
+    from dataclasses import replace
+
+    report = _report(260.0)
+    opt = replace(report, config=replace(report.config, scenario="optimiste"))
+    pess = replace(report, config=replace(report.config, scenario="pessimiste"))
+    stops_o, _ = plan_stops(opt, [_sug(150)], 5.0)
+    stops_p, _ = plan_stops(pess, [_sug(150)], 5.0)
+    assert stops_o and stops_p and stops_o[0].soc_arrival_pct > stops_p[0].soc_arrival_pct
+
+
+def test_chart_has_the_recharge_curve_when_covered():
+    from interfaces.dash_ui import components as ui
+
+    data = {"trip_km": 260.0, "min_soc": 10.0, "scenarios": [
+        {"key": "moyenne", "label": "Moyenne", "color": "#00f", "chart": [{"x": 0, "y": 100}, {"x": 216, "y": 10}]}]}
+    assert [t.name for t in ui.charge_figure(data).data] == ["Charge restante", "Seuil minimum"]
+    data["charging"] = {"covered": True, "curve": [{"x": 0, "y": 100}, {"x": 150, "y": 40}, {"x": 150, "y": 70}, {"x": 260, "y": 19}]}
+    assert [t.name for t in ui.charge_figure(data).data] == ["Sans recharge", "Avec recharge", "Seuil minimum"]
