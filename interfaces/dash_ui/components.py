@@ -228,7 +228,31 @@ def detail_table(data: dict) -> html.Div:
                               className="text-end mb-0 w-auto"))
 
 
-def stations_table(charging: dict | None, requested: bool) -> html.Div:
+SORT_COLUMNS = {"score": ("note", True), "km": ("km", False), "detour_km": ("détour", False), "soc_arrival": ("à l'arrivée", True)}  # key: (label, descending first)
+DEFAULT_SORT = {"key": "score", "desc": True}
+
+
+def next_sort(current: dict | None, key: str) -> dict:
+    """Sort after a click on a column header: same column reverses, another one starts in its natural direction."""
+    current = current or DEFAULT_SORT
+    if current["key"] == key:
+        return {"key": key, "desc": not current["desc"]}
+    return {"key": key, "desc": SORT_COLUMNS[key][1]}
+
+
+def sort_rows(rows: list[dict], sort: dict | None) -> list[dict]:
+    """Station rows ordered by a column (unknown values last); the rank stays the rank by score."""
+    sort = sort if sort and sort.get("key") in SORT_COLUMNS else DEFAULT_SORT
+    known = [r for r in rows if r[sort["key"]] is not None]
+    return sorted(known, key=lambda r: r[sort["key"]], reverse=sort["desc"]) + [r for r in rows if r[sort["key"]] is None]
+
+
+def _sort_header(label: str, key: str, sort: dict) -> html.Th:
+    arrow = (" ▼" if sort["desc"] else " ▲") if sort["key"] == key else ""
+    return html.Th(label + arrow, id={"type": "sort-col", "key": key}, n_clicks=0, style={"cursor": "pointer"})
+
+
+def stations_table(charging: dict | None, requested: bool, sort: dict | None = None) -> html.Div:
     if not requested:
         return html.Div("Recherche de bornes désactivée : renseigner un détour max dans l'onglet « Bornes ».", className="text-muted small")
     if charging is None:
@@ -240,9 +264,13 @@ def stations_table(charging: dict | None, requested: bool) -> html.Div:
     if not charging["rows"]:
         return html.Div([intro, *warns])
     plan = stops_table(charging.get("stops") or [])
-    head = html.Tr([html.Th(h) for h in ("#", "note", "borne", "type", "km", "détour", "à l'arrivée", "recharge", "prix", "détail")])
+    sort = sort if sort and sort.get("key") in SORT_COLUMNS else DEFAULT_SORT
+    plain = lambda h: html.Th(h)  # noqa: E731
+    head = html.Tr([plain("#"), _sort_header("note", "score", sort), plain("borne"), plain("type"), _sort_header("km", "km", sort),
+                    _sort_header("détour", "detour_km", sort), _sort_header("à l'arrivée", "soc_arrival", sort),
+                    plain("recharge"), plain("prix"), plain("détail")])
     body = []
-    for b in charging["rows"]:
+    for b in sort_rows(charging["rows"], sort):
         price = "inconnu" if b["price"] is None else f"{b['price']:.2f} €/kWh" + (f" · ≈{b['cost']:.2f} €" if b["cost"] is not None else "") + f" ({b['price_source']})"
         sub = f"détour {b['sub']['detour']} · besoin {b['sub']['need']} · charge {b['sub']['charge']} · prix {b['sub']['price']}"
         if b["notes"]:

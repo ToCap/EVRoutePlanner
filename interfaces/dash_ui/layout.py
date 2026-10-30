@@ -253,6 +253,7 @@ def build_layout(tile_url: str, attribution: str):
         dcc.Store(id="notif-history", data=[]),
         dcc.Location(id="url", refresh=False),
         dcc.Store(id="trip-key"),
+        dcc.Store(id="stations-sort", data={"key": "score", "desc": True}),
         dcc.Store(id="resize-sink"),
         dcc.Interval(id="poll", interval=POLL_MS, disabled=True),
         sidebar(),
