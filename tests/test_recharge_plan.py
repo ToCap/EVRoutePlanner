@@ -52,3 +52,15 @@ def test_wanted_arrival_charge_increases_the_charge_of_the_last_stop():
 def test_no_reachable_station_gives_a_warning():
     stops, warns = plan_stops(_report(260.0), [_sug(255)], 5.0)
     assert stops == [] and "Aucune borne" in warns[0]
+
+
+def test_alert_is_orange_when_the_plan_covers_the_trip_and_red_otherwise():
+    from interfaces.dash_ui import components as ui
+
+    data = {"trip_km": 312.8, "min_soc": 10.0, "arrival_soc": None, "scenarios": [
+        {"key": "moyenne", "label": "Moyenne", "completed": False, "final_soc": 10.0, "alert": {"km": 216.1}}]}
+    assert ui.banners(None, data)[0].color == "danger"
+    plan = {"covered": True, "stops": [{"km": 171.4}]}
+    alert = ui.banners(None, {**data, "charging": plan})[0]
+    assert alert.color == "warning" and "Trajet interrompu au km 216.1 sans recharge, " in str(alert) and "1 arrêt planifié (km 171.4)" in str(alert)
+    assert ui.banners(None, {**data, "charging": {"covered": False, "stops": []}})[0].color == "danger"

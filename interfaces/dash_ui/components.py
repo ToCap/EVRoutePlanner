@@ -73,6 +73,14 @@ def banners(entry: TripEntry, data: dict) -> list:
                           color="warning", className="py-1 mb-0")]
     # the scenario name is shown only when several scenarios are displayed
     detail = " · ".join((f"{s['label']} : " if len(data["scenarios"]) > 1 else "") + f"km {s['alert']['km']}" for s in stopped)
+    plan = data.get("charging") or {}
+    if plan.get("covered"):  # a recharge plan reaches the arrival: warning instead of danger
+        stops = plan["stops"]
+        where = f"au {detail}" if len(data["scenarios"]) == 1 else f"({detail})"
+        km = ", ".join(f"{s['km']:g}" for s in stops)
+        word = "arrêt planifié" if len(stops) == 1 else "arrêts planifiés"
+        return [dbc.Alert([html.Strong(f"Trajet interrompu {where} sans recharge, "), f"{len(stops)} {word} (km {km})"],
+                          color="warning", className="py-1 mb-0")]
     return [dbc.Alert([html.Strong(f"Trajet interrompu avant l'arrivée ({data['trip_km']:.1f} km) : "), detail,
                        f" - seuil de réserve atteint ({data['min_soc']:g} %)."], color="danger", className="py-1 mb-0")]
 

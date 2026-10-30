@@ -146,4 +146,5 @@ def plan_charging(
     if level != "optionnelle":  # a recharge is useful: chain the best portion/station couples
         plan.stops, stop_warns = plan_stops(report, results, max_detour_km, tariffs)
         plan.warnings += stop_warns
+        plan.covered = bool(plan.stops) and not stop_warns
     return plan
