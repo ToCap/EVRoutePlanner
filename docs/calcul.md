@@ -4,15 +4,9 @@
 
 geocoding (Nominatim) → route with steps (OSRM) → road sections → road type per section (Overpass) → slices of at most 10 km → simulation in 3 scenarios.
 
-## Route profiles
+## Route
 
-Candidates, each with a first estimate:
-- the OSRM alternatives (`osrm_routes`, up to 3): OSRM only keeps routes clearly different from the fastest one;
-- **exit variants** (`exit_variants`, at most `eco_exit_variants` = 2): the fast route's last motorway stretch (steps whose `ref` is A/E/M...) is searched for exits (Overpass `highway=motorway_junction`, on the route within 150 m, at least 1 km before the fast exit). A variant follows the fast route up to the exit, then an OSRM route with `exclude=motorway` to the destination (variants more than 30 % longer are dropped). Cost: 1 Overpass request and 1 OSRM request per variant. Only the last 30 km of the motorway stretch are searched. Overpass is retried (4 attempts, one mirror each, `Retry-After` honoured); if it still fails, or without Overpass, only the alternatives are used (warning).
-Near-identical candidates (distance and duration within 0.5 %) are merged, then `choose_profiles` picks:
-- **fast**: shortest duration;
-- **consumption**: least energy (mean scenario, whole route, independent of the battery) among routes at most `eco_max_extra_duration_pct` (15 %) slower than the fast one.
-`run_trip_profiles` returns both (`ProfileReports`, `same` when one route wins both); only the selected routes are refined. The candidates (distance, duration, kWh, choice) are logged at INFO level.
+The candidates, the two optimisation profiles and the motorway exit variants are described in [itineraire.md](itineraire.md).
 
 ## Road sections and sampling
 
@@ -37,7 +31,9 @@ At a given point, the nearest way (within ~5 m) wins; ties go to the most import
 
 ## Overpass robustness
 
-A User-Agent is always sent (`EV_TRIP_USER_AGENT`). On 429/502/503/504 the client waits for `Retry-After` (capped at 30 s) or a growing delay, and switches mirror on each attempt (3 attempts). `EV_TRIP_OVERPASS_URL` forces a preferred server. If Overpass stays unavailable, types fall back to the OSRM average speed (< 45 km/h ville, >= 88 km/h autoroute, else route) and a warning is added.
+A User-Agent is always sent (`EV_TRIP_USER_AGENT`). Up to 5 attempts per query; each query starts on the next of several mirrors (overpass-api.de and two of its mirrors, overpass.private.coffee, overpass.kumi.systems) and each attempt switches mirror. On 429/502/503/504 the client waits for `Retry-After` (capped at 30 s) or a growing delay. An HTTP 200 answer holding a `runtime error` remark (timeout, memory) is an error, not an empty result. `EV_TRIP_OVERPASS_URL` forces a preferred server.
+
+If Overpass stays unavailable, types fall back to the OSRM average speed (< 45 km/h ville, >= 88 km/h autoroute, else route) and a warning is added: "Types de route estimés d'après la vitesse, précision réduite (Overpass indisponible : délai dépassé)." The cause is short ("délai dépassé", "connexion impossible", "HTTP 504"); the detail of every attempt is in the log.
 
 ## Slicing
 

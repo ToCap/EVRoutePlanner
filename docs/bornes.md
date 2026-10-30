@@ -1,14 +1,15 @@
 # Charging stations
 
-With a maximum detour (`--max-detour` or the "Détour max" field, 0 = disabled), OpenStreetMap stations near the route are searched, their real detour is computed, and each one gets a **score out of 100**. The simulation is unchanged: results are ranked suggestions, not an integrated stop.
+With a maximum detour (`--max-detour` or the "Détour max" field, 0 = disabled), OpenStreetMap stations near the route are searched, their real detour is computed, and each one gets a **score out of 100**. The simulation itself is unchanged (it ignores stops). When a recharge is useful, a **recharge plan** of chained stops is built on top of the ranking (see below).
 
 ## Steps (`application/charging.plan_charging`)
 
-1. **Search (Overpass):** stations within `max_detour × corridor_factor` (0.6) km of the route. Private or non-car stations are ignored.
+1. **Search (Overpass):** stations within `max_detour × corridor_factor` (0.6) km of the route, in several short queries (25 route points each, merged by station id). An empty answer is retried on other mirrors; if only some queries fail, the stations found are kept. Private or non-car stations are ignored.
 2. **Vehicle filter:** stations are dropped if no selected charger level matches their type (see below); a warning gives the count.
 3. **Preselection:** detour estimated as the crow flies (`2 × distance × road_factor`, 1.3), provisional score; the best `max_candidates` (25) are kept.
 4. **Real detour (OSRM):** route A → station → B minus the direct route A → B, with A and B at ± `detour_anchor_km` (15) on the route; one request per second (demo server). If OSRM fails, remaining detours stay estimated (flagged "détour estimé").
 5. **Ranking:** stations with a detour above the maximum are dropped; the best `max_results` (15) are shown.
+6. **Recharge plan:** if the need level is not "optionnelle", `plan_stops` chains the stops (below).
 
 ## Score
 
@@ -23,9 +24,24 @@ Weighted mean of four criteria (weights in `ChargingConfig`, only the ratio matt
 
 **Reachability:** charge on arrival must stay above the reserve (mean scenario). Not reachable: score 0. Reachable in the mean scenario but not in the pessimistic one: score × 0.75 and a note.
 
-**Need level** (whole trip): "nécessaire" if the mean scenario fails, "prudent" if the pessimistic one fails or ends within 5 % of the reserve, otherwise "optionnelle" (need sub-score fixed at 10). Otherwise the need score is highest when the charge on arrival is within 25 % above the reserve and decreases to a floor of 30.
+**Arrival floor:** the wanted arrival charge when it is enabled (Trajet tab, Charge), else the reserve + 5 %.
+
+**Need level** (whole trip): "nécessaire" if the configured scenario fails or ends under the wanted arrival charge, "prudent" if the pessimistic one ends under the arrival floor, otherwise "optionnelle" (need sub-score fixed at 10). Otherwise the need score is highest when the charge on arrival is within 25 % above the reserve and decreases to a floor of 30.
 
 **Energy to add:** the missing energy to finish with a 5 % margin, capped at 80 % of the battery (or at the end `y` of the timed charge profile, below); if nothing is missing, a nominal 20 % top-up (never above that cap).
+
+## Recharge plan (`domain/recharge.plan_stops`)
+
+Built only when a recharge is useful (need level "nécessaire" or "prudent"). The reference is the configured scenario; the pessimistic scenario is a safety check.
+
+1. **Finish test:** from a position and a charge, the trip is finished when both scenarios arrive at or above the arrival floor.
+2. **Portion score:** each slice ("portion") scores from the charge at its end: 0 at or above the top of the charge window (80 % by default), 100 at the minimum, linear in between.
+3. **Station score:** detour, charge duration and price, with the weights above and without the "need" criterion.
+4. **Couple:** for each station reachable with at least the reserve + 5 % on arrival (both scenarios), `portion score × station score / 100`, the portion being the slice holding the station. A portion without station scores 0. The best couple (score > 0) is the next stop.
+5. **Charge:** the energy added covers the rest of the trip up to the arrival floor (pessimistic energy), or up to the next stop (searched from a charge at the cap), and never exceeds the cap. The duration comes from the timed levels below (best compatible level), else from the station power.
+6. **Chaining:** the search restarts from the stop, up to the arrival (6 stops at most). Warnings: "Aucune borne atteignable avec la charge souhaitée sur la suite du trajet.", "Plan de recharge interrompu : trop d'arrêts nécessaires."
+
+Output (`ChargingPlan`): `stops` (`ChargeStop`: station, arrival and departure charge, energy, duration, scores), `covered` (the stops reach the arrival), `final_soc_pct`, `charge_total_min`, `curve`. Limit: the stops are chosen among the candidates whose real detour was computed (25 at most).
 
 ## Price priority
 
