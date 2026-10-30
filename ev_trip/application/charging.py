@@ -12,7 +12,7 @@ from ev_trip.domain.charging import (
     estimate_detour, need_level, score_station, station_compatible,
 )
 from ev_trip.domain.config import ChargingConfig
-from ev_trip.domain.recharge import plan_stops
+from ev_trip.domain.recharge import final_soc_with_stops, plan_stops
 from ev_trip.domain.errors import EVTripError, RoadClassificationError, RoutingError
 from ev_trip.domain.geo import cumulative_km, nearest_on_route, point_at_km
 from ev_trip.domain.models import Point, Route
@@ -147,4 +147,8 @@ def plan_charging(
         plan.stops, stop_warns = plan_stops(report, results, max_detour_km, tariffs)
         plan.warnings += stop_warns
         plan.covered = bool(plan.stops) and not stop_warns
+        if plan.covered:
+            plan.final_soc_pct = final_soc_with_stops(report, plan.stops)
+            times = [c.charge_min for c in plan.stops]
+            plan.charge_total_min = None if None in times else sum(times)
     return plan

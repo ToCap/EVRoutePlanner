@@ -147,6 +147,16 @@ def _status_badge(s: dict, data: dict) -> dbc.Badge:
 
 
 def scenario_cards(data: dict) -> list:
+    """Scenario cards, then the line with the recharge plan if it reaches the arrival."""
+    plan = data.get("charging") or {}
+    if not plan.get("covered") or plan.get("final_soc") is None:
+        return _scenario_cards(data)
+    time = "" if plan.get("charge_total_min") is None else f", +{plan['charge_total_min']:.0f} min de charge"
+    line = html.Div([html.Strong("Avec recharge : "), f"arrivée à {plan['final_soc']:.1f} %{time}"], className="small mt-1")
+    return [*_scenario_cards(data), line]
+
+
+def _scenario_cards(data: dict) -> list:
     """One card per scenario, one column each (stacked on narrow screens); a single scenario is one plain line."""
     if len(data["scenarios"]) == 1:
         s = data["scenarios"][0]

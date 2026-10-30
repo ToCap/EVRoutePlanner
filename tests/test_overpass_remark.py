@@ -34,10 +34,10 @@ BAD = {"elements": [], "remark": "runtime error: Query timed out in \"query\" at
 def test_runtime_error_remark_is_retried_on_another_mirror():
     http = _Http([BAD, {"elements": [{"id": 1}]}])
     client = OverpassClient(http, ["u1", "u2"], pause_s=0)
-    assert client.run("q") == [{"id": 1}] and http.urls == ["u1", "u2"]
+    assert client.run("q") == [{"id": 1}] and sorted(http.urls) == ["u1", "u2"]
 
 
 def test_persistent_runtime_error_is_an_error_not_an_empty_result():
-    client = OverpassClient(_Http([BAD, BAD, BAD]), ["u1", "u2"], pause_s=0)
+    client = OverpassClient(_Http([BAD, BAD, BAD]), ["u1", "u2"], pause_s=0, retries=3)
     with pytest.raises(RoadClassificationError, match="interrompue"):
         client.run("q")

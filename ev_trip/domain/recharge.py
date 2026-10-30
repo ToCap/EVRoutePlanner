@@ -119,3 +119,12 @@ def plan_stops(report: TripReport, suggestions: list[StationSuggestion], max_det
         stops.append(ChargeStop(sug, arr, after, add_kwh, minutes, p_score, s_score, couple, cost))
         pos, soc = sug.route_km, after - 100.0 * half / cap
     return stops, warns
+
+
+def final_soc_with_stops(report: TripReport, stops: list[ChargeStop]) -> float:
+    """Charge (%) on arrival in the mean scenario once every stop is made."""
+    moy = report.simulation
+    last = stops[-1]
+    left = last.soc_after_pct - 100.0 * last.suggestion.detour_kwh / 2.0 / moy.vehicle.battery_kwh
+    return left - 100.0 * energy_between(report.slices, report.config, moy.temp_c, "moyenne",
+                                         last.suggestion.route_km, moy.trip_km) / moy.vehicle.battery_kwh

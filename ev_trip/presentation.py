@@ -177,6 +177,8 @@ def build_charging_data(plan) -> dict:
     return {
         "stops": stops,
         "covered": getattr(plan, "covered", False),
+        "final_soc": r(getattr(plan, "final_soc_pct", None)),
+        "charge_total_min": r(getattr(plan, "charge_total_min", None), 0),
         "rows": rows,
         "found": plan.found,
         "evaluated": plan.evaluated,

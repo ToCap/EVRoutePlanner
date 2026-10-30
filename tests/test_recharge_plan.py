@@ -64,3 +64,18 @@ def test_alert_is_orange_when_the_plan_covers_the_trip_and_red_otherwise():
     alert = ui.banners(None, {**data, "charging": plan})[0]
     assert alert.color == "warning" and "Trajet interrompu au km 216.1 sans recharge, " in str(alert) and "1 arrêt planifié (km 171.4)" in str(alert)
     assert ui.banners(None, {**data, "charging": {"covered": False, "stops": []}})[0].color == "danger"
+
+
+def test_arrival_charge_with_stops_and_summary_line():
+    from ev_trip.domain.recharge import final_soc_with_stops
+    from interfaces.dash_ui import components as ui
+
+    report = _report(260.0)
+    stops, _ = plan_stops(report, [_sug(150)], 5.0)
+    assert 15.0 <= final_soc_with_stops(report, stops) <= 30.0
+    data = {"trip_km": 260.0, "min_soc": 10.0, "arrival_soc": None, "scenarios": [
+        {"key": "moyenne", "label": "Moyenne", "completed": False, "final_soc": 10.0, "total_kwh": 40.0,
+         "avg_kwh_per_100km": 19.0, "final_kwh": 5.2, "alert": {"km": 216.1}}]}
+    assert len(ui.scenario_cards(data)) == 1
+    data["charging"] = {"covered": True, "final_soc": 22.5, "charge_total_min": 32.0}
+    assert "Avec recharge : " in str(ui.scenario_cards(data)[-1]) and "arrivée à 22.5 %, +32 min de charge" in str(ui.scenario_cards(data)[-1])
