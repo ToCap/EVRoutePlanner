@@ -79,3 +79,13 @@ def test_arrival_charge_with_stops_and_summary_line():
     assert len(ui.scenario_cards(data)) == 1
     data["charging"] = {"covered": True, "final_soc": 22.5, "charge_total_min": 32.0}
     assert "Avec recharge : " in str(ui.scenario_cards(data)[-1]) and "arrivée à 22.5 %, +32 min de charge" in str(ui.scenario_cards(data)[-1])
+
+
+def test_interrupted_badge_is_not_red_when_the_plan_covers_the_trip():
+    from interfaces.dash_ui import components as ui
+
+    s = {"completed": False, "alert": {"km": 216.1}, "final_soc": 10.0}
+    data = {"arrival_soc": None, "scenarios": [s]}
+    assert ui._status_badge(s, data).color == "danger"
+    covered = ui._status_badge(s, {**data, "charging": {"covered": True}})
+    assert covered.color == "warning" and covered.children == "sans recharge"

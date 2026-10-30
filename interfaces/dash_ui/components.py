@@ -142,6 +142,8 @@ def trip_summary(data: dict, duration_min: float) -> html.Div:
 
 def _status_badge(s: dict, data: dict) -> dbc.Badge:
     if not s["completed"]:
+        if (data.get("charging") or {}).get("covered"):  # the recharge plan reaches the arrival: not alarming
+            return dbc.Badge("sans recharge", color="warning", text_color="dark")
         return dbc.Badge(f"interrompu km {s['alert']['km']}", color="danger")
     return dbc.Badge("sous le souhaité", color="warning", text_color="dark") if short_of_arrival(s, data) else dbc.Badge("arrivée", color="success")
 
@@ -152,7 +154,8 @@ def scenario_cards(data: dict) -> list:
     if not plan.get("covered") or plan.get("final_soc") is None:
         return _scenario_cards(data)
     time = "" if plan.get("charge_total_min") is None else f", +{plan['charge_total_min']:.0f} min de charge"
-    line = html.Div([html.Strong("Avec recharge : "), f"arrivée à {plan['final_soc']:.1f} %{time}"], className="small mt-1")
+    line = html.Div([html.Strong("Avec recharge : "), f"arrivée à {plan['final_soc']:.1f} %{time} ", dbc.Badge("arrivée", color="success")],
+                    className="small mt-1")
     return [*_scenario_cards(data), line]
 
 
