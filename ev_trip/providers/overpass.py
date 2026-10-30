@@ -1,6 +1,7 @@
 """Overpass provider (OpenStreetMap): robust HTTP client, road types, charging stations."""
 from __future__ import annotations
 
+import logging
 import os
 import time
 from datetime import datetime, timezone
@@ -14,6 +15,8 @@ from ev_trip.domain.errors import RoadClassificationError
 from ev_trip.domain.geo import cumulative_km, point_at_km
 from ev_trip.domain.models import Point, Route
 from ev_trip.domain.road_classification import best_way_type
+
+log = logging.getLogger(__name__)
 
 USER_AGENT = os.environ.get("EV_TRIP_USER_AGENT", "ev-trip-simulator/0.1")
 # Overpass returns 406 without a User-Agent; mirrors are the fallback; EV_TRIP_OVERPASS_URL forces a server.
@@ -81,7 +84,12 @@ class OverpassClient:
                     hint = f", Retry-After : {retry_after:g} s" if retry_after is not None else ""
                     raise requests.HTTPError(f"HTTP {resp.status_code}{hint}")
                 resp.raise_for_status()
-                return resp.json().get("elements", [])
+                data = resp.json()
+                remark = str(data.get("remark", ""))
+                if "runtime error" in remark.lower():  # HTTP 200 with no elements: query timed out or server out of memory
+                    log.warning("Overpass : %s", remark)
+                    raise ValueError("requête interrompue (délai dépassé ou serveur surchargé)")
+                return data.get("elements", [])
             except (requests.RequestException, ValueError) as exc:
                 last_error = exc
                 if attempt >= self.retries - 1:
@@ -132,23 +140,33 @@ class OverpassRoadClassifier(OverpassClient):
 # --- charging stations ----------------------------------------------------
 
 
-def corridor_query(route: Route, radius_m: float, step_km: float = 1.5) -> str:
-    """Stations within `radius_m` of the route (polyline subsampled every `step_km`)."""
+CORRIDOR_CHUNK_POINTS = 40  # route points per query: long polylines make Overpass answer empty or time out
+
+
+def corridor_queries(route: Route, radius_m: float, step_km: float = 1.5, chunk: int = CORRIDOR_CHUNK_POINTS) -> list[str]:
+    """Station queries within `radius_m` of the route (polyline subsampled every `step_km`, split in overlapping chunks)."""
     cum = cumulative_km(route.coordinates)
     total = cum[-1]
     kms = [i * step_km for i in range(int(total // step_km) + 1)]
     if not kms or total - kms[-1] > 1e-6:
         kms.append(total)
-    coords = ",".join(
-        f"{p.lat:.5f},{p.lon:.5f}" for p in (point_at_km(route, k, cum) for k in kms)
-    )
-    around = f"around:{radius_m:g},{coords}"
-    return (
-        "[out:json][timeout:90];("
-        f'node({around})["amenity"="charging_station"];'
-        f'way({around})["amenity"="charging_station"];'
-        ");out center tags;"
-    )
+    pts = [point_at_km(route, k, cum) for k in kms]
+    queries = []
+    for start in range(0, max(len(pts) - 1, 1), chunk - 1):
+        coords = ",".join(f"{p.lat:.5f},{p.lon:.5f}" for p in pts[start : start + chunk])
+        around = f"around:{radius_m:g},{coords}"
+        queries.append(
+            "[out:json][timeout:90];("
+            f'node({around})["amenity"="charging_station"];'
+            f'way({around})["amenity"="charging_station"];'
+            ");out center tags;"
+        )
+    return queries
+
+
+def corridor_query(route: Route, radius_m: float, step_km: float = 1.5) -> str:
+    """Single query for the whole route (see `corridor_queries`)."""
+    return corridor_queries(route, radius_m, step_km, chunk=10**9)[0]
 
 
 def find_stations(
@@ -156,12 +174,17 @@ def find_stations(
 ) -> list[Station]:
     """Usable stations within `radius_km` of the route."""
     client = client or OverpassClient()
-    elements = client.run(corridor_query(route, radius_km * 1000.0))
     seen: dict[str, Station] = {}
-    for el in elements:
-        st = station_from_element(el, cfg)
-        if st is not None:
-            seen.setdefault(st.id, st)
+    queries = corridor_queries(route, radius_km * 1000.0)
+    for n, query in enumerate(queries):
+        if n and client.pause_s:
+            time.sleep(client.pause_s)
+        elements = client.run(query)
+        log.info("Overpass bornes : requête %d/%d, rayon %.1f km, %d éléments reçus", n + 1, len(queries), radius_km, len(elements))
+        for el in elements:
+            st = station_from_element(el, cfg)
+            if st is not None:
+                seen.setdefault(st.id, st)
     return list(seen.values())
 
 
