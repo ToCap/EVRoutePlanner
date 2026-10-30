@@ -53,7 +53,7 @@ def compute(service: TripService, trigger: str | None, values: dict, search: str
     return key, "", (no_update if from_url else query), (values if from_url else None), set()
 
 
-def refresh(service: TripService, key: str | None, sort: dict | None = None):
+def refresh(service: TripService, key: str | None, sort: dict | None = None, speeds: list[str] | None = None):
     """Renders all panels of a trip; returns a dict per output + polling stop."""
     empty = {"route": [], "markers": [], "map_alert": [], "notifs": [], "summary": no_update, "cards": no_update,
              "graph": ui.charge_figure(), "detail": [], "stations": [], "poll_disabled": True, "stage": no_update}
@@ -74,7 +74,7 @@ def refresh(service: TripService, key: str | None, sort: dict | None = None):
         "map_alert": ui.banners(entry, data), "notifs": ui.notifications(entry, key),
         "summary": ui.trip_summary(data, report.route.duration_min), "cards": ui.scenario_cards(data),
         "graph": ui.charge_figure(data), "detail": ui.detail_table(data),
-        "stations": ui.stations_table(data.get("charging"), requested, sort),
+        "stations": ui.stations_table(data.get("charging"), requested, sort, speeds),
         "poll_disabled": entry.state != REFINING, "stage": entry.stage or "Calcul en cours…",
     }
 
@@ -152,10 +152,10 @@ def register(app, service: TripService) -> None:
         Output("stations-table", "children"), Output("poll", "disabled"), Output("refine-badge", "style"),
         Output("map-alert", "children"), Output("notif-new", "data"),
         Output("refine-text", "children"),
-        Input("trip-key", "data"), Input("poll", "n_intervals"), Input("stations-sort", "data"),
+        Input("trip-key", "data"), Input("poll", "n_intervals"), Input("stations-sort", "data"), Input("stations-speed", "value"),
     )
-    def on_refresh(key, _n, sort):
-        r = refresh(service, key, sort)
+    def on_refresh(key, _n, sort, speeds):
+        r = refresh(service, key, sort, speeds)
         return (r["route"], r["markers"], r["summary"], r["cards"], r["graph"], r["detail"], r["stations"], r["poll_disabled"],
                 BADGE_HIDDEN if r["poll_disabled"] else BADGE_SHOWN, r["map_alert"], r["notifs"],
                 r["stage"])

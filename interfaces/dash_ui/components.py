@@ -230,6 +230,21 @@ def detail_table(data: dict) -> html.Div:
 
 SORT_COLUMNS = {"score": ("note", True), "km": ("km", False), "detour_km": ("détour", False), "soc_arrival": ("à l'arrivée", True)}  # key: (label, descending first)
 DEFAULT_SORT = {"key": "score", "desc": True}
+SPEED_CLASSES = [("lente", "Lente (< 10 kW)"), ("acceleree", "Accélérée (10 à 50 kW)"), ("rapide", "Rapide (50 à 150 kW)"),
+                 ("ultra", "Ultra-rapide (150 kW et plus)"), ("inconnue", "Inconnue")]
+ALL_SPEEDS = [k for k, _ in SPEED_CLASSES]
+
+
+def speed_class(power_kw: float | None) -> str:
+    """Charge speed class of a station (lower bound included); unknown power: "inconnue"."""
+    if not power_kw:
+        return "inconnue"
+    return "lente" if power_kw < 10 else "acceleree" if power_kw < 50 else "rapide" if power_kw < 150 else "ultra"
+
+
+def filter_rows(rows: list[dict], speeds: list[str] | None) -> list[dict]:
+    """Rows whose speed class is selected (None: no filtering); a display filter on top of the vehicle chargers."""
+    return rows if speeds is None else [r for r in rows if speed_class(r["power_kw"]) in speeds]
 
 
 def next_sort(current: dict | None, key: str) -> dict:
@@ -252,7 +267,7 @@ def _sort_header(label: str, key: str, sort: dict) -> html.Th:
     return html.Th(label + arrow, id={"type": "sort-col", "key": key}, n_clicks=0, style={"cursor": "pointer"})
 
 
-def stations_table(charging: dict | None, requested: bool, sort: dict | None = None) -> html.Div:
+def stations_table(charging: dict | None, requested: bool, sort: dict | None = None, speeds: list[str] | None = None) -> html.Div:
     if not requested:
         return html.Div("Recherche de bornes désactivée : renseigner un détour max dans l'onglet « Bornes ».", className="text-muted small")
     if charging is None:
@@ -265,12 +280,15 @@ def stations_table(charging: dict | None, requested: bool, sort: dict | None = N
         return html.Div([intro, *warns])
     plan = stops_table(charging.get("stops") or [])
     sort = sort if sort and sort.get("key") in SORT_COLUMNS else DEFAULT_SORT
+    shown = filter_rows(charging["rows"], speeds)
+    if not shown:
+        return html.Div([intro, *warns, html.Div("Aucune borne ne correspond au filtre de vitesse.", className="text-muted small")])
     plain = lambda h: html.Th(h)  # noqa: E731
     head = html.Tr([plain("#"), _sort_header("note", "score", sort), plain("borne"), plain("type"), _sort_header("km", "km", sort),
                     _sort_header("détour", "detour_km", sort), _sort_header("à l'arrivée", "soc_arrival", sort),
                     plain("recharge"), plain("prix"), plain("détail")])
     body = []
-    for b in sort_rows(charging["rows"], sort):
+    for b in sort_rows(shown, sort):
         price = "inconnu" if b["price"] is None else f"{b['price']:.2f} €/kWh" + (f" · ≈{b['cost']:.2f} €" if b["cost"] is not None else "") + f" ({b['price_source']})"
         sub = f"détour {b['sub']['detour']} · besoin {b['sub']['need']} · charge {b['sub']['charge']} · prix {b['sub']['price']}"
         if b["notes"]:
@@ -289,9 +307,11 @@ def stations_table(charging: dict | None, requested: bool, sort: dict | None = N
     note = html.P("Note /100 : détour, besoin de recharge, durée de recharge, prix (prix inconnu = neutre 50). "
                   "Vert ≥ 70, orange 40–70, gris < 40. « ~ » : détour estimé à vol d'oiseau.", className="small text-muted mt-1 mb-0")
     table = dbc.Table([html.Thead(head), html.Tbody(body)], size="sm", striped=True, className="mb-0")
+    hidden = [html.P(f"{len(shown)} borne(s) affichée(s) sur {len(charging['rows'])} (filtre de vitesse).", className="small text-muted mt-1 mb-0")] \
+        if len(shown) < len(charging["rows"]) else []
     if plan is None:
-        return html.Div([intro, *warns, table, note])
-    return html.Div([intro, plan, *warns, html.Div("Toutes les bornes", className="fw-bold small mt-2"), table, note])
+        return html.Div([intro, *warns, table, *hidden, note])
+    return html.Div([intro, plan, *warns, html.Div("Toutes les bornes", className="fw-bold small mt-2"), table, *hidden, note])
 
 
 def stops_table(stops: list[dict]) -> html.Div | None:

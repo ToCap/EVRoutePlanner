@@ -6,7 +6,7 @@ import dash_leaflet as dl
 from dash import dcc, html
 
 from ev_trip.domain.config import CHARGER_LEVELS
-from interfaces.dash_ui.components import charge_figure
+from interfaces.dash_ui.components import ALL_SPEEDS, SPEED_CLASSES, charge_figure
 from interfaces.dash_ui.params import DEFAULTS, charge_min_id
 
 POLL_MS = 3000
@@ -236,7 +236,10 @@ def routes_panel():
             dbc.Tab(dcc.Graph(id="charge-graph", figure=charge_figure(), style={"height": "calc(34vh - 90px)", "minHeight": "180px"},
                               config={"displaylogo": False}), label="Charge restante", tab_id="t-charge"),
             dbc.Tab(html.Div(id="detail-table", className="pt-2"), label="Détail par tranche", tab_id="t-detail"),
-            dbc.Tab(html.Div(id="stations-table", className="pt-2"), label="Bornes de recharge", tab_id="t-stations"),
+            dbc.Tab(html.Div([
+                dcc.Checklist(id="stations-speed", options=[{"label": label, "value": key} for key, label in SPEED_CLASSES], value=ALL_SPEEDS,
+                              inline=True, className="small pt-2", inputClassName="me-1", labelClassName="me-3"),
+                html.Div(id="stations-table", className="pt-2")]), label="Bornes de recharge", tab_id="t-stations"),
         ], active_tab="t-trip"),
     ], className="p-2")
 
