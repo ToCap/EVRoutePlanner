@@ -41,7 +41,8 @@ def _plan_grid(
         try:
             types = classifier.classify([s.mid for s in samples])
         except RoadClassificationError as exc:
-            warnings.append(f"{exc} : types de route estimés d'après la vitesse (précision réduite).")
+            log.warning("Types de route : classification impossible : %s", exc)
+            warnings.append(f"Types de route estimés d'après la vitesse, précision réduite ({user_message(exc)}).")
 
     missing = 0
     segments: list[MicroSegment] = []

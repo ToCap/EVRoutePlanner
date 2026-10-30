@@ -41,3 +41,15 @@ def test_persistent_runtime_error_is_an_error_not_an_empty_result():
     client = OverpassClient(_Http([BAD, BAD, BAD]), ["u1", "u2"], pause_s=0, retries=3)
     with pytest.raises(RoadClassificationError, match="interrompue"):
         client.run("q")
+
+
+def test_failure_message_is_short_and_has_no_url():
+    import requests
+
+    class Http:
+        def post(self, url, **kw):
+            raise requests.ReadTimeout("HTTPSConnectionPool(host='overpass.private.coffee', port=443): Read timed out. (read timeout=120.0)")
+
+    with pytest.raises(RoadClassificationError) as err:
+        OverpassClient(Http(), ["u1"], pause_s=0, retries=2).run("q")
+    assert str(err.value) == "Overpass indisponible : délai dépassé"

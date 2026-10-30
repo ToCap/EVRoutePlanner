@@ -49,6 +49,20 @@ def parse_retry_after(value: str | None, now: datetime | None = None) -> float |
     return max(0.0, (when - (now or datetime.now(timezone.utc))).total_seconds())
 
 
+def short_cause(exc: Exception) -> str:
+    """Short user-facing cause of a failed request (the full error goes to the log)."""
+    if isinstance(exc, requests.Timeout):
+        return "délai dépassé"
+    if isinstance(exc, requests.ConnectionError):
+        return "connexion impossible"
+    if isinstance(exc, requests.HTTPError):
+        response = getattr(exc, "response", None)
+        return f"HTTP {response.status_code}" if response is not None else str(exc).split(" for url")[0]
+    if isinstance(exc, requests.RequestException):
+        return "erreur réseau"
+    return str(exc) if isinstance(exc, ValueError) and "interrompue" in str(exc) else "réponse illisible"
+
+
 class OverpassClient:
     """Overpass client: User-Agent, rotating mirrors, Retry-After honored."""
 
@@ -96,13 +110,14 @@ class OverpassClient:
                 return data.get("elements", [])
             except (requests.RequestException, ValueError) as exc:
                 last_error = exc
+                log.warning("Overpass : tentative %d/%d en échec : %s", attempt + 1, self.retries, exc)
                 if attempt >= self.retries - 1:
                     break
                 if retry_after is not None:  # the server dictates the delay (capped)
                     time.sleep(min(retry_after, self.max_retry_after_s))
                 elif self.pause_s:
                     time.sleep(self.pause_s * (attempt + 1) * 2)
-        raise RoadClassificationError(f"Overpass indisponible : {last_error}")
+        raise RoadClassificationError(f"Overpass indisponible : {short_cause(last_error)}")
 
 
 class OverpassRoadClassifier(OverpassClient):
