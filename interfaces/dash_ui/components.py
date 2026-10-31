@@ -21,6 +21,8 @@ def route_layers(data: dict) -> list:
         for s in data["route_slices"]
     ]
     layers.append(dl.Marker(position=data["start"], children=[dl.Tooltip("Départ")]))
+    for i, position in enumerate(data.get("via", []), 1):  # intermediate stops: numbered round markers
+        layers.append(dl.DivMarker(position=position, iconOptions=via_icon(i), children=[dl.Tooltip(f"Étape {i}")]))
     layers.append(dl.Marker(position=data["end"], children=[dl.Tooltip("Arrivée")]))
     return layers
 
@@ -31,6 +33,13 @@ def station_icon(color: str) -> dict:
              'box-shadow:0 1px 4px rgba(0,0,0,.5);transform:rotate(45deg);display:flex;align-items:center;justify-content:center">'
              '<span style="transform:rotate(-45deg);color:#fff;font-size:14px;line-height:1;text-shadow:0 0 2px #000">⚡</span></div>')
     return {"html": html_, "className": "station-icon", "iconSize": [24, 24], "iconAnchor": [12, 12]}
+
+
+def via_icon(number: int) -> dict:
+    """Round marker holding the number of an intermediate stop."""
+    html_ = (f'<div style="width:24px;height:24px;background:#0d6efd;border:2px solid #fff;border-radius:50%;color:#fff;'
+             f'box-shadow:0 1px 4px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;font:bold 12px sans-serif">{number}</div>')
+    return {"html": html_, "className": "via-icon", "iconSize": [24, 24], "iconAnchor": [12, 12]}
 
 
 def marker_layers(data: dict) -> list:

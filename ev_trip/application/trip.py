@@ -120,15 +120,16 @@ def run_trip(
         classifier = OverpassRoadClassifier()
 
     start, end = locate(geocode_fn, origin, destination)
-    report = _estimate(origin, destination, route_fn(start, end, **_via_kwargs(geocode_fn, via)), temp_c, vehicle, cfg, classifier)
+    stops = _via_kwargs(geocode_fn, via)
+    report = _estimate(origin, destination, route_fn(start, end, **stops), temp_c, vehicle, cfg, classifier, stops.get("via"))
     return refine_trip(report, classifier) if refine and report.refinable else report
 
 
 def _estimate(
     origin: str, destination: str, route: Route, temp_c: float, vehicle: VehicleParams, cfg: ConsumptionConfig,
-    classifier: RoadClassifier | None,
+    classifier: RoadClassifier | None, via: list[Point] | None = None,
 ) -> TripReport:
-    """First estimate of one route (one Overpass point per road section)."""
+    """First estimate of one route (one Overpass point per road section); `via`: its intermediate stops."""
     coarse: CoarsePlan | None = None
     precision = "fine"
     if route.steps:
@@ -139,7 +140,7 @@ def _estimate(
         slices, warnings = _plan_grid(route, cfg, classifier)
 
     sims = simulate_all(slices, vehicle, temp_c, cfg)
-    return TripReport(origin, destination, route, slices, sims, warnings, cfg, precision, coarse)
+    return TripReport(origin, destination, route, slices, sims, warnings, cfg, precision, coarse, via=list(via or []))
 
 
 def route_energy_kwh(report: TripReport, temp_c: float) -> float:
@@ -182,7 +183,8 @@ def run_trip_profiles(
         classifier = OverpassRoadClassifier()
 
     start, end = locate(geocode_fn, origin, destination)
-    routes = routes_fn(start, end, **_via_kwargs(geocode_fn, via))
+    stops = _via_kwargs(geocode_fn, via)
+    routes = routes_fn(start, end, **stops)
     notes: list[str] = []
     if variants_fn is None and use_overpass and not via:
         variants_fn = _overpass_variants
@@ -196,7 +198,7 @@ def run_trip_profiles(
             log.warning("Recherche des sorties d'autoroute impossible : %s", exc)
             notes.append(f"Variantes de sortie non étudiées ({user_message(exc)}).")
     routes = [routes[i] for i in distinct_indices([(r.distance_km, r.duration_min) for r in routes])]
-    reports = [_estimate(origin, destination, r, temp_c, vehicle, cfg, classifier) for r in routes]
+    reports = [_estimate(origin, destination, r, temp_c, vehicle, cfg, classifier, stops.get("via")) for r in routes]
     for r in reports:
         r.warnings.extend(notes)
     energies = [route_energy_kwh(r, temp_c) for r in reports]

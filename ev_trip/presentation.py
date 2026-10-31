@@ -118,6 +118,7 @@ def build_view_data(report: TripReport) -> dict:
         "trip_km": round(ref.trip_km, 2),
         "start": [round(start.lat, 5), round(start.lon, 5)],
         "end": [round(end.lat, 5), round(end.lon, 5)],
+        "via": [[round(p.lat, 5), round(p.lon, 5)] for p in report.via],
     }
 
 

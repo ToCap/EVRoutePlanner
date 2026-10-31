@@ -112,3 +112,20 @@ def test_rows_have_an_input_and_a_delete_button_per_stop():
     text = str(rows)
     assert len(rows) == 2 and "Étape 2" in text and "'index': 1" in text and "via-del" in text and "Rouen" in text
     assert ui.via_rows(None) == []
+
+
+def test_report_keeps_the_stops_and_the_map_shows_them_numbered():
+    stops = []
+
+    def route_fn(a, b, **kw):
+        stops.append(kw.get("via"))
+        return Route([Point(48.0, 2.0), Point(48.9, 2.0)], 100.0, 60.0)
+
+    geo = lambda q: Point(48.5, 2.0) if q == "C" else Point(48.0, 2.0)  # noqa: E731
+    report = run_trip("A", "B", 15.0, VehicleParams(52.0, 90.0, 10.0), geocode_fn=geo, route_fn=route_fn, use_overpass=False, refine=False, via=("C",))
+    assert report.via == [Point(48.5, 2.0)] and stops == [[Point(48.5, 2.0)]]
+    assert run_trip("A", "B", 15.0, VehicleParams(52.0, 90.0, 10.0), geocode_fn=geo, route_fn=route_fn, use_overpass=False, refine=False).via == []
+    data = {"route_slices": [], "start": [48.0, 2.0], "end": [48.9, 2.0], "via": [[48.5, 2.0], [48.7, 2.0]]}
+    layers = ui.route_layers(data)
+    assert [str(l.children[0].children) for l in layers if getattr(l, "iconOptions", None)] == ["Étape 1", "Étape 2"]
+    assert len(ui.route_layers({k: v for k, v in data.items() if k != "via"})) == 2

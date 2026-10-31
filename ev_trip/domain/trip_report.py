@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ev_trip.domain.config import ConsumptionConfig
-from ev_trip.domain.models import Route, SimulationResult, Slice
+from ev_trip.domain.models import Point, Route, SimulationResult, Slice
 from ev_trip.domain.sampling import CoarsePlan
 
 
@@ -21,6 +21,7 @@ class TripReport:
     precision: str = "fine"
     coarse: CoarsePlan | None = None  # pass-1 data, used by the refinement
     full_simulations: dict[str, SimulationResult] | None = None  # all scenarios, kept when `simulations` is cut to one
+    via: list[Point] = field(default_factory=list)  # intermediate stops, in order
 
     @property
     def simulation(self) -> SimulationResult:
