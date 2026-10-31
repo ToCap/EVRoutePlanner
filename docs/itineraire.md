@@ -5,10 +5,21 @@ How the route of a trip is found, compared and chosen. The road types and the en
 ## Flow
 
 1. **Geocoding** (Nominatim) of the origin and the destination.
-2. **Candidates** (OSRM): the fastest route and its alternatives (`osrm_routes`, up to 3). OSRM only keeps alternatives clearly different from the fastest one.
+2. **Candidates** (OSRM): the fastest route and its alternatives (`osrm_routes`, up to 3). OSRM only keeps alternatives clearly different from the fastest one. With intermediate stops there is a single route (see below).
 3. **First estimate** of each candidate (one Overpass point per road section, see [calcul.md](calcul.md)).
 4. **Choice** of the route shown, from the *Optimisation* parameter (below).
 5. **Background task**: motorway exit variants (consumption only), refinement of the road types, then the station search and the recharge plan ([bornes.md](bornes.md)). The busy badge shows the current step.
+
+## Intermediate stops
+
+The *Itinéraire* accordion (Trajet tab) lets the user add up to 5 stops (`MAX_WAYPOINTS`): "+ Ajouter une étape" inserts a field just before the destination, and the ✕ at the right of a stop removes it. Stops cannot be reordered.
+
+- A stop is a plain passing point: no duration, no recharge. The station search and the recharge plan work on the whole trip.
+- Each stop is geocoded in order (`locate_via`) and sent to OSRM between the origin and the destination (`osrm_routes(..., via=...)`). An empty field is ignored.
+- OSRM offers no alternative route with more than two points, so there is **one route**: the exit variants are skipped, the request profile is forced to `fast` and the *Optimisation* dropdown is greyed out.
+- The report keeps the stops (`TripReport.via`); the map shows them as numbered blue markers.
+- The shared link holds them in `via=Rouen|Lisieux`. They are part of the result key.
+- Possible evolution: optimise leg by leg (alternatives and exit variants for each leg, then assemble), at the cost of more OSRM and Overpass requests.
 
 ## Optimisation
 
@@ -40,6 +51,6 @@ Limit: the public OSRM demo server may refuse `exclude=motorway` (HTTP 400). The
 
 ## Failures
 
-- Geocoding or routing failure: error shown in the footer, no result.
+- Geocoding failure: a typo gives "Adresse introuvable : « X » (départ|étape n|arrivée). Vérifiez l'orthographe."; an outage gives "Impossible de localiser le départ|l'étape n|l'arrivée : problème de connexion|service indisponible. Réessayez dans un instant." (no address). Routing failure: a short cause. Both are shown as error notifications, no result.
 - Overpass failure: the road types fall back to the OSRM average speed and a warning is shown (see [calcul.md](calcul.md)).
-- User-facing messages give the impact and a short cause, never a URL; the full error goes to the application log.
+- User-facing messages give the impact and a short cause, never a URL or a host; the full error goes to the application log.
