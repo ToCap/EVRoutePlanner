@@ -17,6 +17,8 @@ from ev_trip.domain.errors import EVTripError
 from ev_trip.presentation import build_charging_data, build_view_data
 
 log = logging.getLogger(__name__)
+
+SERVICE_ERROR = "service-error"  # id of the alert of a service failure: shown as an error notification, not in the footer
 FIELD_IDS = ("origin", "destination", "temp-c", "battery-kwh", "soc-slider", "min-slider", "max-detour", "use-overpass", "chargers",
              "charge-window", *[charge_min_id(level.id) for level in CHARGER_LEVELS], "battery-health", "eco-extra", "eco-exit", "scenario", "profile", "arrival-on", "arrival-slider")
 FIELD_KEYS = ("origin", "destination", "temp_c", "battery_kwh", "start_soc", "min_soc", "max_detour_km", "use_overpass", "chargers",
@@ -46,7 +48,7 @@ def compute(service: TripService, trigger: str | None, values: dict, search: str
         return no_update, dbc.Alert(str(exc), color="danger", className="py-1 mb-0"), no_update, None, set()
     except (EVTripError, requests.RequestException) as exc:
         log.warning("Calcul impossible : %s", exc)  # the full error (URL included) stays in the log
-        return no_update, dbc.Alert(user_message(exc), color="danger", className="py-1 mb-0"), no_update, None, set()
+        return no_update, dbc.Alert(user_message(exc), id=SERVICE_ERROR, color="danger", className="py-1 mb-0"), no_update, None, set()
     query = to_query(request)
     if from_url and key == current_key:
         return no_update, "", no_update, values, set()
@@ -116,7 +118,8 @@ def register(app, service: TripService) -> None:
         return not checked
 
     outputs = [Output("trip-key", "data"), Output("form-error", "children"), Output("url", "search"),
-               *[Output(i, "value") for i in FIELD_IDS], *[Output(i, "invalid") for i in INVALIDABLE.values()]]
+               *[Output(i, "value") for i in FIELD_IDS], *[Output(i, "invalid") for i in INVALIDABLE.values()],
+               Output("notif-new", "data", allow_duplicate=True)]
     states = [State("trip-key", "data"), *[State(i, "value") for i in FIELD_IDS]]
 
     def handle(trigger, search, current_key, field_values):
@@ -124,7 +127,9 @@ def register(app, service: TripService) -> None:
         key, error, query, filled, invalid = compute(service, trigger, values, search, current_key)
         reported = [filled[k] for k in FIELD_KEYS] if filled else [no_update] * len(FIELD_KEYS)
         flags = [no_update] * len(INVALIDABLE) if invalid is None else [k in invalid for k in INVALIDABLE]
-        return key, error, query, *reported, *flags
+        if getattr(error, "id", None) == SERVICE_ERROR:  # a service failure goes to the notifications
+            return key, "", query, *reported, *flags, ui.error_notification(error.children)
+        return key, error, query, *reported, *flags, no_update
 
     # button: busy indicators (spinner, disabled button) only while a click is being processed
     @app.callback(

@@ -1,13 +1,16 @@
 """Geocoding via Nominatim (OpenStreetMap)."""
 from __future__ import annotations
 
+import logging
 import os
 import re
 
 import requests
 
-from ev_trip.domain.errors import GeocodingError
+from ev_trip.domain.errors import GeocodingNotFound, GeocodingUnavailable
 from ev_trip.domain.models import Point
+
+log = logging.getLogger(__name__)
 
 NOMINATIM_URL = "https://nominatim.openstreetmap.org/search"
 USER_AGENT = os.environ.get("EV_TRIP_USER_AGENT", "ev-trip-simulator/0.1")
@@ -32,8 +35,10 @@ def geocode(query: str, session: requests.Session | None = None, timeout: float 
         resp.raise_for_status()
         results = resp.json()
     except (requests.RequestException, ValueError) as exc:
-        raise GeocodingError(f"Géocodage de « {query} » impossible : {exc}") from exc
+        log.warning("Géocodage de « %s » impossible : %s", query, exc)  # the full error stays in the log
+        cause = "problème de connexion" if isinstance(exc, (requests.ConnectionError, requests.Timeout)) else "service indisponible"
+        raise GeocodingUnavailable(cause) from exc
 
     if not results:
-        raise GeocodingError(f"Adresse introuvable : « {query} »")
+        raise GeocodingNotFound(f"Adresse introuvable : « {query} »")
     return Point(float(results[0]["lat"]), float(results[0]["lon"]))

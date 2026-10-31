@@ -6,7 +6,7 @@ from dataclasses import replace
 from typing import Callable
 
 from ev_trip.domain.config import ConsumptionConfig
-from ev_trip.domain.errors import EVTripError, RoadClassificationError
+from ev_trip.domain.errors import EVTripError, GeocodingNotFound, GeocodingUnavailable, RoadClassificationError
 from ev_trip.domain.geo import resample
 from ev_trip.domain.models import MicroSegment, Point, Route, Slice, VehicleParams
 from ev_trip.domain.ports import GeocodeFn, RoadClassifier, RouteFn
@@ -27,6 +27,19 @@ from ev_trip.providers.overpass import OverpassRoadClassifier
 log = logging.getLogger(__name__)
 
 __all__ = ["ProfileReports", "TripReport", "plan_slices", "refine_trip", "run_trip", "run_trip_profiles"]
+
+
+def locate(geocode_fn: GeocodeFn, origin: str, destination: str) -> tuple[Point, Point]:
+    """Coordinates of both ends; errors tell which end failed (typo: the address, outage: no address)."""
+    points = []
+    for query, role, article in ((origin, "départ", "le départ"), (destination, "arrivée", "l'arrivée")):
+        try:
+            points.append(geocode_fn(query))
+        except GeocodingNotFound as exc:
+            raise GeocodingNotFound(f"{exc} ({role}). Vérifiez l'orthographe.") from exc
+        except GeocodingUnavailable as exc:
+            raise GeocodingUnavailable(f"Impossible de localiser {article} : {exc}. Réessayez dans un instant.") from exc
+    return points[0], points[1]
 
 
 def _plan_grid(
@@ -93,7 +106,7 @@ def run_trip(
     if classifier is None and use_overpass:
         classifier = OverpassRoadClassifier()
 
-    report = _estimate(origin, destination, route_fn(geocode_fn(origin), geocode_fn(destination)), temp_c, vehicle, cfg, classifier)
+    report = _estimate(origin, destination, route_fn(*locate(geocode_fn, origin, destination)), temp_c, vehicle, cfg, classifier)
     return refine_trip(report, classifier) if refine and report.refinable else report
 
 
@@ -152,7 +165,7 @@ def run_trip_profiles(
     if classifier is None and use_overpass:
         classifier = OverpassRoadClassifier()
 
-    start, end = geocode_fn(origin), geocode_fn(destination)
+    start, end = locate(geocode_fn, origin, destination)
     routes = routes_fn(start, end)
     notes: list[str] = []
     if variants_fn is None and use_overpass:

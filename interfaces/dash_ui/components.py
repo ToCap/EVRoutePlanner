@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import hashlib
+import time
 
 import dash_bootstrap_components as dbc
 import dash_leaflet as dl
@@ -117,6 +118,11 @@ def merge_notifications(history: list[dict] | None, incoming: list[dict], keep: 
     fresh = [n for n in incoming if n["id"] not in seen]
     merged = sorted([*fresh, *history], key=lambda n: -LEVEL_RANK[n["level"]])  # stable: newest first within a level
     return merged[:keep], fresh
+
+
+def error_notification(text: str) -> list[dict]:
+    """One error notification; the id changes on every call so that a repeated failure is shown again."""
+    return [{"id": hashlib.sha1(f"{time.time_ns()}|{text}".encode()).hexdigest()[:10], "level": "danger", "text": text}]
 
 
 def notification_toasts(fresh: list[dict]) -> list:
