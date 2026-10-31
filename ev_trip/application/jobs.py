@@ -29,6 +29,9 @@ STAGE_REFINE = "Affinage des types de route…"
 STAGE_STATIONS = "Recherche des bornes…"
 
 
+MAX_WAYPOINTS = 5  # intermediate stops of a trip
+
+
 @dataclass(frozen=True)
 class TripRequest:
     """Trip parameters; `key()` identifies a result (same request = same key)."""
@@ -51,6 +54,7 @@ class TripRequest:
     scenario: str = DEFAULT_SCENARIO  # the one consumption scenario shown and used (optimiste / moyenne / pessimiste)
     profile: str = "fast"  # route optimisation: "fast" (shortest duration) or "eco" (least energy)
     arrival_soc: float | None = None  # wanted charge at arrival (%), None = only the minimum is required
+    waypoints: tuple[str, ...] = ()  # intermediate stops, in order (plain passing points)
 
     def __post_init__(self) -> None:
         known = [level.id for level in CHARGER_LEVELS]
@@ -68,6 +72,9 @@ class TripRequest:
             raise ValueError("Écart de durée : la valeur doit être >= 0 %.")
         if self.arrival_soc is not None and not self.min_soc <= self.arrival_soc <= 100:
             raise ValueError("Charge à l'arrivée : la valeur doit être comprise entre le seuil minimum et 100 %.")
+        if len(self.waypoints) > MAX_WAYPOINTS or any(not w.strip() for w in self.waypoints):
+            raise ValueError(f"Étapes : {MAX_WAYPOINTS} au maximum, chacune renseignée.")
+        object.__setattr__(self, "waypoints", tuple(w.strip() for w in self.waypoints))
         if not 0 < self.battery_health_pct <= 100:
             raise ValueError("Santé de la batterie : la valeur doit être > 0 et <= 100 %.")
         timed = dict(self.charge_minutes)
@@ -203,20 +210,21 @@ class TripService:
         if entry is not None:
             return key, entry
         eco = request.profile == "eco"
-        later = request.eco_exit_variants if eco and self.variants is not None and request.use_overpass else 0  # exits: background task
+        later = request.eco_exit_variants if eco and self.variants is not None and request.use_overpass and not request.waypoints else 0  # exits: background task
+        via = {"via": request.waypoints} if request.waypoints else {}  # passed only with stops: plain runners keep their call
         base, same, fast_is_eco = None, False, False
         if self.run_profiles is not None and (eco or self.run_trip is None):  # fast: one route when `run_trip` is available
             profiles = self.run_profiles(
                 request.origin, request.destination, request.temp_c, request.vehicle(),
                 ConsumptionConfig(eco_max_extra_duration_pct=request.eco_extra_pct, eco_exit_variants=0 if later else request.eco_exit_variants,
-                                  scenario=request.scenario), use_overpass=request.use_overpass, refine=False,
+                                  scenario=request.scenario), use_overpass=request.use_overpass, refine=False, **via,
             )
             report = profiles.eco if eco else profiles.fast
-            base, same, fast_is_eco = (profiles.fast if later else None), profiles.same, eco and profiles.same and not later
+            base, same, fast_is_eco = (profiles.fast if later else None), profiles.same, eco and profiles.same and not later and not request.waypoints
         else:
             report = self.run_trip(
                 request.origin, request.destination, request.temp_c, request.vehicle(),
-                use_overpass=request.use_overpass, refine=False,
+                use_overpass=request.use_overpass, refine=False, **via,
             )
         report = only_scenario(report, request.scenario)
         base = report if same and base is not None else (only_scenario(base, request.scenario) if base is not None else None)  # same route: same object

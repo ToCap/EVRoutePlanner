@@ -320,6 +320,17 @@ def stations_table(charging: dict | None, requested: bool, sort: dict | None = N
     return html.Div([intro, plan, *warns, html.Div("Toutes les bornes", className="fw-bold small mt-2"), table, *hidden, note])
 
 
+def via_rows(values: list[str] | None) -> list:
+    """One input and one delete button per intermediate stop (pattern-matching ids: `via-input`, `via-del`)."""
+    return [html.Div([
+        html.Label(f"Étape {i}", className="form-label"),
+        dbc.InputGroup([
+            dbc.Input(id={"type": "via-input", "index": i - 1}, type="text", value=text, placeholder="Étape", debounce=True),
+            dbc.Button("✕", id={"type": "via-del", "index": i - 1}, color="secondary", outline=True),
+        ]),
+    ], className="mb-2") for i, text in enumerate(values or [], 1)]
+
+
 def stops_table(stops: list[dict]) -> html.Div | None:
     """Retained recharge stops, in trip order; None when no recharge is planned."""
     if not stops:

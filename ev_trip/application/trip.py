@@ -29,17 +29,29 @@ log = logging.getLogger(__name__)
 __all__ = ["ProfileReports", "TripReport", "plan_slices", "refine_trip", "run_trip", "run_trip_profiles"]
 
 
+def _locate_one(geocode_fn: GeocodeFn, query: str, role: str, article: str) -> Point:
+    """Coordinates of one place; errors tell which one failed (typo: the address, outage: no address)."""
+    try:
+        return geocode_fn(query)
+    except GeocodingNotFound as exc:
+        raise GeocodingNotFound(f"{exc} ({role}). Vérifiez l'orthographe.") from exc
+    except GeocodingUnavailable as exc:
+        raise GeocodingUnavailable(f"Impossible de localiser {article} : {exc}. Réessayez dans un instant.") from exc
+
+
 def locate(geocode_fn: GeocodeFn, origin: str, destination: str) -> tuple[Point, Point]:
-    """Coordinates of both ends; errors tell which end failed (typo: the address, outage: no address)."""
-    points = []
-    for query, role, article in ((origin, "départ", "le départ"), (destination, "arrivée", "l'arrivée")):
-        try:
-            points.append(geocode_fn(query))
-        except GeocodingNotFound as exc:
-            raise GeocodingNotFound(f"{exc} ({role}). Vérifiez l'orthographe.") from exc
-        except GeocodingUnavailable as exc:
-            raise GeocodingUnavailable(f"Impossible de localiser {article} : {exc}. Réessayez dans un instant.") from exc
-    return points[0], points[1]
+    """Coordinates of both ends."""
+    return _locate_one(geocode_fn, origin, "départ", "le départ"), _locate_one(geocode_fn, destination, "arrivée", "l'arrivée")
+
+
+def locate_via(geocode_fn: GeocodeFn, via: tuple[str, ...]) -> list[Point]:
+    """Coordinates of the intermediate stops, in order."""
+    return [_locate_one(geocode_fn, q, f"étape {i}", f"l'étape {i}") for i, q in enumerate(via, 1)]
+
+
+def _via_kwargs(geocode_fn: GeocodeFn, via: tuple[str, ...]) -> dict:
+    """`via` argument of the route provider, only when there are stops (plain providers keep their call)."""
+    return {"via": locate_via(geocode_fn, via)} if via else {}
 
 
 def _plan_grid(
@@ -100,13 +112,15 @@ def run_trip(
     classifier: RoadClassifier | None = None,
     use_overpass: bool = True,
     refine: bool = True,
+    via: tuple[str, ...] = (),
 ) -> TripReport:
-    """Computes a trip; `refine=False` returns a fast first estimate (one Overpass point per road section)."""
+    """Computes a trip, through the `via` stops in order; `refine=False` returns a fast first estimate (one Overpass point per road section)."""
     cfg = cfg or ConsumptionConfig()
     if classifier is None and use_overpass:
         classifier = OverpassRoadClassifier()
 
-    report = _estimate(origin, destination, route_fn(*locate(geocode_fn, origin, destination)), temp_c, vehicle, cfg, classifier)
+    start, end = locate(geocode_fn, origin, destination)
+    report = _estimate(origin, destination, route_fn(start, end, **_via_kwargs(geocode_fn, via)), temp_c, vehicle, cfg, classifier)
     return refine_trip(report, classifier) if refine and report.refinable else report
 
 
@@ -154,21 +168,23 @@ def run_trip_profiles(
     classifier: RoadClassifier | None = None,
     use_overpass: bool = True,
     refine: bool = True,
+    via: tuple[str, ...] = (),
 ) -> ProfileReports[TripReport]:
     """Fast route (shortest duration) and consumption route (least energy within `eco_max_extra_duration_pct` of it).
 
     Candidates: the OSRM alternatives plus up to `eco_exit_variants` routes leaving the motorway at an earlier exit
     (`variants_fn`, by default the Overpass junction search; skipped without Overpass). They are ranked on their first
-    estimate; `refine=False` returns those estimates.
+    estimate; `refine=False` returns those estimates. With `via` stops OSRM offers no alternative and the exit variants are skipped:
+    both profiles are the one route.
     """
     cfg = cfg or ConsumptionConfig()
     if classifier is None and use_overpass:
         classifier = OverpassRoadClassifier()
 
     start, end = locate(geocode_fn, origin, destination)
-    routes = routes_fn(start, end)
+    routes = routes_fn(start, end, **_via_kwargs(geocode_fn, via))
     notes: list[str] = []
-    if variants_fn is None and use_overpass:
+    if variants_fn is None and use_overpass and not via:
         variants_fn = _overpass_variants
     if variants_fn is not None and cfg.eco_exit_variants > 0:
         try:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from typing import Sequence
 
 import requests
 
@@ -56,11 +57,13 @@ def osrm_routes(
     timeout: float = 60.0,
     alternatives: int = 3,
     exclude: str | None = None,
+    via: Sequence[Point] = (),
 ) -> list[Route]:
-    """Fastest route first, then up to `alternatives` OSRM alternatives; `exclude` = road class to avoid (e.g. "motorway")."""
-    url = f"{base_url}/route/v1/driving/{origin.lon},{origin.lat};{destination.lon},{destination.lat}"
+    """Fastest route first, then up to `alternatives` OSRM alternatives (none with `via` points: OSRM only offers them between two points); `exclude` = road class to avoid (e.g. "motorway")."""
+    coords = ";".join(f"{p.lon},{p.lat}" for p in (origin, *via, destination))
+    url = f"{base_url}/route/v1/driving/{coords}"
     params = {"overview": "full", "geometries": "geojson", "annotations": "duration", "steps": "true"}
-    if alternatives > 0:
+    if alternatives > 0 and not via:
         params["alternatives"] = str(alternatives)
     if exclude:
         params["exclude"] = exclude
@@ -83,8 +86,9 @@ def osrm_route(
     session: requests.Session | None = None,
     base_url: str = OSRM_URL,
     timeout: float = 60.0,
+    via: Sequence[Point] = (),
 ) -> Route:
-    return osrm_routes(origin, destination, session, base_url, timeout, alternatives=0)[0]
+    return osrm_routes(origin, destination, session, base_url, timeout, alternatives=0, via=via)[0]
 
 
 def osrm_path(

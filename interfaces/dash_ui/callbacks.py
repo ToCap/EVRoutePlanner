@@ -11,7 +11,7 @@ from ev_trip.application.messages import user_message
 from interfaces.dash_ui import components as ui
 from interfaces.dash_ui.layout import BADGE_HIDDEN, BADGE_SHOWN, NOTIF_BTN_HIDDEN, NOTIF_BTN_SHOWN, SPINNER_HIDDEN, SPINNER_SHOWN
 from interfaces.dash_ui.params import FieldError, charge_min_id, charge_min_key, from_query, request_from_values, to_query
-from ev_trip.application.jobs import REFINING, TripService
+from ev_trip.application.jobs import MAX_WAYPOINTS, REFINING, TripService
 from ev_trip.domain.config import CHARGER_LEVELS
 from ev_trip.domain.errors import EVTripError
 from ev_trip.presentation import build_charging_data, build_view_data
@@ -30,6 +30,16 @@ INVALIDABLE = {"origin": "origin", "destination": "destination", "temp_c": "temp
 def charge_inputs_disabled(selected: list[str] | None) -> list[bool]:
     """Disabled flag of each timed-duration input, in `CHARGER_LEVELS` order: greyed out when its level is not selected."""
     return [level.id not in (selected or ()) for level in CHARGER_LEVELS]
+
+
+def edit_via(trigger, current: list[str] | None) -> list[str]:
+    """Stops after a click: "via-add" appends an empty stop (up to the maximum), a delete button removes its stop."""
+    values = [v or "" for v in current or []]
+    if trigger == "via-add":
+        return values + [""] if len(values) < MAX_WAYPOINTS else values
+    if isinstance(trigger, dict) and trigger.get("type") == "via-del":
+        return [v for i, v in enumerate(values) if i != trigger["index"]]
+    return values
 
 
 def compute(service: TripService, trigger: str | None, values: dict, search: str | None, current_key: str | None):
@@ -119,17 +129,19 @@ def register(app, service: TripService) -> None:
 
     outputs = [Output("trip-key", "data"), Output("form-error", "children"), Output("url", "search"),
                *[Output(i, "value") for i in FIELD_IDS], *[Output(i, "invalid") for i in INVALIDABLE.values()],
-               Output("notif-new", "data", allow_duplicate=True)]
-    states = [State("trip-key", "data"), *[State(i, "value") for i in FIELD_IDS]]
+               Output("via-list", "data"), Output("notif-new", "data", allow_duplicate=True)]
+    states = [State("trip-key", "data"), *[State(i, "value") for i in FIELD_IDS], State({"type": "via-input", "index": ALL}, "value")]
 
     def handle(trigger, search, current_key, field_values):
-        values = dict(zip(FIELD_KEYS, field_values))
+        *fields, via = field_values  # the last state holds the typed stops
+        values = {**dict(zip(FIELD_KEYS, fields)), "via": via}
         key, error, query, filled, invalid = compute(service, trigger, values, search, current_key)
         reported = [filled[k] for k in FIELD_KEYS] if filled else [no_update] * len(FIELD_KEYS)
         flags = [no_update] * len(INVALIDABLE) if invalid is None else [k in invalid for k in INVALIDABLE]
+        via_out = filled["via"] if filled else no_update  # a shared link fills the stops back
         if getattr(error, "id", None) == SERVICE_ERROR:  # a service failure goes to the notifications
-            return key, "", query, *reported, *flags, ui.error_notification(error.children)
-        return key, error, query, *reported, *flags, no_update
+            return key, "", query, *reported, *flags, via_out, ui.error_notification(error.children)
+        return key, error, query, *reported, *flags, via_out, no_update
 
     # button: busy indicators (spinner, disabled button) only while a click is being processed
     @app.callback(
@@ -164,6 +176,19 @@ def register(app, service: TripService) -> None:
         return (r["route"], r["markers"], r["summary"], r["cards"], r["graph"], r["detail"], r["stations"], r["poll_disabled"],
                 BADGE_HIDDEN if r["poll_disabled"] else BADGE_SHOWN, r["map_alert"], r["notifs"],
                 r["stage"])
+
+    @app.callback(Output("via-rows", "children"), Output("via-add", "disabled"), Output("profile", "disabled"), Input("via-list", "data"))
+    def on_via_list(values):  # one row per stop; with stops there is one route, so the optimisation is greyed out
+        values = values or []
+        return ui.via_rows(values), len(values) >= MAX_WAYPOINTS, bool(values)
+
+    @app.callback(Output("via-list", "data", allow_duplicate=True), Input("via-add", "n_clicks"),
+                  Input({"type": "via-del", "index": ALL}, "n_clicks"), State({"type": "via-input", "index": ALL}, "value"),
+                  prevent_initial_call=True)
+    def on_via_edit(_add, _dels, current):  # a re-rendered row fires with 0 clicks and is ignored
+        if not callback_context.triggered or not callback_context.triggered[0]["value"]:
+            return no_update
+        return edit_via(callback_context.triggered_id, current)
 
     @app.callback(Output("stations-sort", "data"), Input({"type": "sort-col", "key": ALL}, "n_clicks"),
                   State("stations-sort", "data"), prevent_initial_call=True)

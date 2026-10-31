@@ -23,7 +23,7 @@ DEFAULTS = {
     "origin": "", "destination": "", "temp_c": 15.0, "battery_kwh": 52.0,
     "start_soc": 90.0, "min_soc": 10.0, "max_detour_km": 5.0, "use_overpass": True, "chargers": list(DEFAULT_CHARGERS),
     "battery_health_pct": 100, "eco_extra_pct": 15.0, "eco_exit_variants": 2, "scenario": "moyenne", "profile": "fast", "charge_window": [15, 80],
-    "arrival_on": [], "arrival_soc": 30.0,  # `arrival_on`: Checklist value (["on"] when the wanted arrival charge is used)
+    "via": [], "arrival_on": [], "arrival_soc": 30.0,  # `arrival_on`: Checklist value (["on"] when the wanted arrival charge is used)
     **{charge_min_key(level.id): None for level in CHARGER_LEVELS},
 }
 _RANGES = {  # field: (label, min, max, required)
@@ -65,6 +65,7 @@ def request_from_values(values: dict) -> TripRequest:
             raise FieldError(f"{label} : la valeur doit être comprise entre {lo} et {hi}.", (name,))
         numbers[name] = number
     chargers = tuple(values.get("chargers") or ())
+    via = tuple(v.strip() for v in (values.get("via") or []) if v and v.strip())  # an empty stop is ignored
     try:
         low, high = (float(v) for v in (values.get("charge_window") or DEFAULTS["charge_window"]))
     except (TypeError, ValueError):
@@ -107,7 +108,8 @@ def request_from_values(values: dict) -> TripRequest:
         origin, destination, numbers["temp_c"], numbers["battery_kwh"], numbers["start_soc"],
         numbers["min_soc"], bool(values.get("use_overpass", True)), numbers["max_detour_km"], chargers,
         low, high, tuple(minutes), battery_health_pct=health, eco_extra_pct=eco_extra, eco_exit_variants=exits,
-        scenario=values.get("scenario") or DEFAULTS["scenario"], profile=values.get("profile") or DEFAULTS["profile"], arrival_soc=arrival,
+        scenario=values.get("scenario") or DEFAULTS["scenario"], profile="fast" if via else values.get("profile") or DEFAULTS["profile"],
+        arrival_soc=arrival, waypoints=via,  # with stops OSRM has no alternative: one route, whatever the optimisation
     )
     request.vehicle()  # same check as the domain (capacity, percentages)
     return request
@@ -122,6 +124,8 @@ def to_query(request: TripRequest) -> str:
         "charge_from": f"{request.charge_from_pct:g}", "charge_to": f"{request.charge_to_pct:g}",
         "battery_health": f"{request.battery_health_pct:g}", "eco_extra": f"{request.eco_extra_pct:g}", "eco_exit": str(request.eco_exit_variants), "scenario": request.scenario, "profile": request.profile,
     }
+    if request.waypoints:
+        params["via"] = "|".join(request.waypoints)
     if request.arrival_soc is not None:
         params["arrival"] = f"{request.arrival_soc:g}"
     if request.charge_minutes:
@@ -161,6 +165,8 @@ def from_query(search: str | None) -> dict | None:
             values["eco_exit_variants"] = int(float(q["eco_exit"]))
         except ValueError:
             values["eco_exit_variants"] = q["eco_exit"]  # will be rejected by request_from_values
+    if q.get("via"):
+        values["via"] = [v for v in q["via"].split("|") if v]
     if "arrival" in q:
         values["arrival_on"] = ["on"]
         try:
