@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Callable
 
 from ev_trip.application.messages import user_message
@@ -42,6 +43,57 @@ def osrm_detour(
     return detour_from_via(route, cum, a_km, b_km, via_km, via_min)
 
 
+@dataclass
+class StationPrefetch:
+    """Network part of the station search, which depends on the route geometry only (can run while the route is refined)."""
+
+    found: list[Station] = field(default_factory=list)  # stations in the corridor
+    detours: dict[str, tuple[float, float]] = field(default_factory=dict)  # station id -> real detour (km, min)
+    error: str | None = None  # short cause when the corridor search failed
+    osrm_error: str | None = None  # short cause when the detours could not all be routed
+
+
+def fetch_stations(
+    route: Route,
+    max_detour_km: float,
+    cfg: ChargingConfig | None = None,
+    *,
+    stations: StationSource | None = None,
+    detour_fn: Callable[..., tuple[float, float]] | None = None,
+    sleep: Callable[[float], None] = time.sleep,
+) -> StationPrefetch:
+    """Corridor stations and the real detour of the `max_candidates` closest ones (estimated as the crow flies)."""
+    cfg = cfg or ChargingConfig()
+    if stations is None:
+        from ev_trip.providers.overpass import OverpassStationSource
+
+        stations = OverpassStationSource(cfg=cfg)
+    out = StationPrefetch()
+    cum = cumulative_km(route.coordinates)
+    try:
+        out.found = list(stations.find(route, max_detour_km * cfg.corridor_factor))
+    except (RoadClassificationError, EVTripError) as exc:
+        log.warning("Recherche des bornes impossible : %s", exc)
+        out.error = user_message(exc)
+        return out
+    near = []
+    for st in out.found:
+        km, dist = nearest_on_route(route, st.point, cum)
+        near.append((estimate_detour(dist, cfg)[0], st, km))
+    near.sort(key=lambda t: t[0])
+    detour = detour_fn or (lambda r, st, km, c, cum_: osrm_detour(r, st, km, c, cum=cum_))
+    for n, (_, st, km) in enumerate(near[: cfg.max_candidates]):
+        if n and cfg.osrm_pause_s:
+            sleep(cfg.osrm_pause_s)
+        try:
+            out.detours[st.id] = detour(route, st, km, cfg, cum)
+        except (RoutingError, EVTripError) as exc:
+            log.warning("Détours : OSRM indisponible : %s", exc)
+            out.osrm_error = user_message(exc)
+            break
+    return out
+
+
 def find_stations(
     reports: list[TripReport], max_detour_km: float, *, stations: StationSource | None = None
 ) -> list[Station]:
@@ -70,11 +122,12 @@ def plan_charging(
     charge_window: tuple[float, float] | None = None,
     charge_minutes: dict[str, float] | None = None,
     pool: list[Station] | None = None,
+    prefetch: StationPrefetch | None = None,
 ) -> ChargingPlan:
-    """Stations ranked by relevance score, with a detour <= `max_detour_km`; `pool` = stations already searched (by `find_stations`)."""
+    """Stations ranked by relevance score, with a detour <= `max_detour_km`; `pool` = stations already searched (by `find_stations`); `prefetch` = corridor and detours already fetched (`fetch_stations`)."""
     if max_detour_km <= 0:
         raise ValueError("Le détour maximum doit être > 0 km.")
-    if stations is None and pool is None:
+    if stations is None and pool is None and prefetch is None:
         from ev_trip.providers.overpass import OverpassStationSource
 
         stations = OverpassStationSource(cfg=report.config.charging)
@@ -90,9 +143,14 @@ def plan_charging(
     level = need_level(report)
     plan = ChargingPlan([], 0, 0, max_detour_km, level)
 
+    if prefetch is not None and prefetch.error is not None:
+        plan.warnings.append(f"Recherche des bornes impossible ({prefetch.error}).")
+        return plan
     try:
         radius = max_detour_km * cc.corridor_factor
-        if pool is not None:  # shared pool: keep the stations along this route
+        if prefetch is not None:
+            found = prefetch.found
+        elif pool is not None:  # shared pool: keep the stations along this route
             found = [st for st in pool if nearest_on_route(route, st.point, cum)[1] <= radius]
         else:
             found = stations.find(route, radius)
@@ -122,12 +180,20 @@ def plan_charging(
 
     detour = detour_fn or (lambda r, st, km, c, cum_: osrm_detour(r, st, km, c, cum=cum_))
     osrm_ok = True
+    routed = False  # a detour was requested from OSRM: the next one waits (demo server)
     results: list[StationSuggestion] = []
+    if prefetch is not None and prefetch.osrm_error is not None:
+        plan.warnings.append(f"Détours estimés à vol d'oiseau (OSRM indisponible : {prefetch.osrm_error}).")
     for n, (_, _, st, km, est_km, est_min) in enumerate(candidates):
         d_km, d_min, estimated = est_km, est_min, True
-        if osrm_ok:
-            if n and cc.osrm_pause_s:
+        known = prefetch.detours.get(st.id) if prefetch is not None else None
+        if known is not None:  # already routed while the trip was refined
+            d_km, d_min = known
+            estimated = False
+        elif osrm_ok and not (prefetch is not None and prefetch.osrm_error is not None):
+            if routed and cc.osrm_pause_s:
                 sleep(cc.osrm_pause_s)
+            routed = True
             try:
                 d_km, d_min = detour(route, st, km, cc, cum)
                 estimated = False

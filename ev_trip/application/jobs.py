@@ -6,15 +6,16 @@ import json
 import logging
 import threading
 import time
+from concurrent.futures import Future
 from dataclasses import asdict, dataclass, field, replace
 from typing import Callable, Protocol
 
-from ev_trip.application.charging import plan_charging
+from ev_trip.application.charging import StationPrefetch, fetch_stations, plan_charging
 from ev_trip.application.messages import user_message
 from ev_trip.application.trip import add_exit_variants, refine_trip, run_trip, run_trip_profiles
 from ev_trip.domain.charging import ChargingPlan, TariffTable
 from ev_trip.domain.config import CHARGER_LEVELS, DEFAULT_CHARGERS, DEFAULT_SCENARIO, SCENARIOS, ConsumptionConfig
-from ev_trip.domain.models import VehicleParams
+from ev_trip.domain.models import Route, VehicleParams
 from ev_trip.domain.route_profiles import ProfileReports
 from ev_trip.domain.trip_report import TripReport
 
@@ -183,6 +184,7 @@ class TripService:
         refine: Callable[[TripReport], TripReport] = refine_trip,
         plan: Callable[..., ChargingPlan] = plan_charging,
         variants: Callable[..., ProfileReports] | None = None,
+        prefetch: Callable[..., StationPrefetch] | None = None,
         retry_delays: tuple[float, ...] = RETRY_DELAYS_S,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
@@ -190,6 +192,7 @@ class TripService:
         if production:  # production: the fastest route alone, or the candidates of the consumption profile
             run_profiles = run_trip_profiles
         self.variants = variants or (add_exit_variants if production else None)  # exit variants: background task, with retries
+        self.prefetch = prefetch or (fetch_stations if production else None)  # corridor and detours, fetched while the trip is refined
         self.retry_delays = retry_delays
         self.sleep = sleep
         self.store = store or MemoryStore()
@@ -240,10 +243,28 @@ class TripService:
             self.runner(lambda: self.run_job(key))
         return key, entry
 
-    def _plan(self, entry: TripEntry, report: TripReport) -> tuple[ChargingPlan | None, list[str]]:
+    def _start_prefetch(self, entry: TripEntry, route: Route, cfg) -> Future | None:
+        """Starts the network part of the station search in its own thread (it depends on the route geometry only)."""
+        if self.prefetch is None or entry.max_detour_km <= 0:
+            return None
+        future: Future = Future()
+
+        def work() -> None:
+            try:
+                future.set_result(self.prefetch(route, entry.max_detour_km, cfg))
+            except Exception as exc:  # the planner then searches by itself
+                log.exception("Préchargement des bornes impossible")
+                future.set_exception(exc)
+
+        threading.Thread(target=work, daemon=True, name="ev-trip-stations").start()
+        return future
+
+    def _plan(self, entry: TripEntry, report: TripReport, fetched: Future | None = None) -> tuple[ChargingPlan | None, list[str]]:
         """Stations of the route; (None, errors) if the search fails."""
         # the timed charge profile is passed only when set: other plans keep their usual call
         timed = {"charge_window": entry.charge_window, "charge_minutes": dict(entry.charge_minutes)} if entry.charge_minutes else {}
+        if fetched is not None and fetched.exception() is None:  # waits for the prefetch thread
+            timed["prefetch"] = fetched.result()
         try:
             return self.plan(for_planning(report), entry.max_detour_km, tariffs=self.tariffs(), chargers=entry.chargers, **timed), []
         except Exception as exc:
@@ -272,6 +293,7 @@ class TripService:
             found, note = self._search_variants(ProfileReports(entry.base or report, report), entry.variants)
             report, fast_is_eco = only_scenario(found.eco, entry.scenario), found.same
             self.store.set(key, replace(self.store.get(key) or entry, report=report, variants=0, base=None, fast_is_eco=fast_is_eco))
+        fetched = self._start_prefetch(entry, report.route, report.config.charging)  # stations: in parallel with the refinement
         try:
             if report.refinable:
                 self._stage(key, entry, STAGE_REFINE)
@@ -285,7 +307,7 @@ class TripService:
         changes: dict = {"report": report, "refined": refined}
         if entry.max_detour_km > 0:
             self._stage(key, entry, STAGE_STATIONS)
-            plan, plan_errors = self._plan(entry, report)
+            plan, plan_errors = self._plan(entry, report, fetched)
             errors += plan_errors
             if plan is not None:
                 changes["charging"] = plan
