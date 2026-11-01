@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
@@ -83,16 +85,18 @@ class OverpassClient:
         self.timeout = timeout
         self.max_retry_after_s = max_retry_after_s  # cap on the wait imposed by Retry-After
         self._calls = 0  # each query starts on the next mirror
+        self._lock = threading.Lock()  # queries may run in several threads
 
     def run(self, query: str) -> list[dict]:
         """Runs a query and returns the elements; RoadClassificationError if Overpass stays unavailable."""
         last_error: Exception | None = None
-        self._calls += 1
+        with self._lock:
+            first = self._calls = self._calls + 1
         for attempt in range(self.retries):
             retry_after: float | None = None
             try:
                 resp = self.http.post(
-                    self.urls[(self._calls + attempt) % len(self.urls)],  # a different server on each attempt and query
+                    self.urls[(first + attempt) % len(self.urls)],  # a different server on each attempt and query
                     data={"data": query},
                     headers=self.headers,
                     timeout=self.timeout,
@@ -159,6 +163,7 @@ class OverpassRoadClassifier(OverpassClient):
 # --- charging stations ----------------------------------------------------
 
 
+CORRIDOR_WORKERS = 3  # corridor queries running at once (each starts on another mirror)
 EMPTY_RETRIES = 2  # extra attempts (other mirrors) when a corridor query returns no element
 CORRIDOR_CHUNK_POINTS = 25  # route points per query: long polylines make Overpass answer empty or time out
 
@@ -190,16 +195,15 @@ def corridor_query(route: Route, radius_m: float, step_km: float = 1.5) -> str:
 
 
 def find_stations(
-    route: Route, radius_km: float, client: OverpassClient | None = None, cfg: ChargingConfig | None = None
+    route: Route, radius_km: float, client: OverpassClient | None = None, cfg: ChargingConfig | None = None,
+    workers: int = CORRIDOR_WORKERS,
 ) -> list[Station]:
-    """Usable stations within `radius_km` of the route."""
+    """Usable stations within `radius_km` of the route; the corridor queries run `workers` at a time."""
     client = client or OverpassClient()
-    seen: dict[str, Station] = {}
     queries = corridor_queries(route, radius_km * 1000.0)
-    failures: list[RoadClassificationError] = []
-    for n, query in enumerate(queries):
-        if n and client.pause_s:
-            time.sleep(client.pause_s)
+
+    def search(item: tuple[int, str]) -> tuple[list[dict], RoadClassificationError | None]:
+        n, query = item
         try:
             elements = client.run(query)
             for _ in range(EMPTY_RETRIES):  # a busy mirror may answer 200 with nothing: ask another one
@@ -210,15 +214,21 @@ def find_stations(
                 elements = client.run(query)
         except RoadClassificationError as exc:  # one failed part must not lose the others
             log.warning("Overpass bornes : requête %d/%d en échec : %s", n + 1, len(queries), exc)
-            failures.append(exc)
-            continue
+            return [], exc
         log.info("Overpass bornes : requête %d/%d, rayon %.1f km, %d éléments reçus", n + 1, len(queries), radius_km, len(elements))
+        return elements, None
+
+    with ThreadPoolExecutor(max_workers=max(1, min(workers, len(queries)))) as pool:
+        parts = list(pool.map(search, enumerate(queries)))  # in route order
+    failures = [exc for _, exc in parts if exc is not None]
+    if failures and len(failures) == len(queries):
+        raise failures[-1]
+    seen: dict[str, Station] = {}
+    for elements, _ in parts:
         for el in elements:
             st = station_from_element(el, cfg)
             if st is not None:
                 seen.setdefault(st.id, st)
-    if failures and len(failures) == len(queries):
-        raise failures[-1]
     return list(seen.values())
 
 
