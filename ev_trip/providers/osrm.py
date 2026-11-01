@@ -116,3 +116,31 @@ def osrm_path(
         raise RoutingError(f"Aucun itinéraire trouvé ({data.get('code', 'réponse invalide')}).")
     best = data["routes"][0]
     return best["distance"] / 1000.0, best["duration"] / 60.0
+
+
+def osrm_table(
+    points: list[Point],
+    sources: list[int],
+    destinations: list[int],
+    session: requests.Session | None = None,
+    base_url: str = OSRM_URL,
+    timeout: float = 60.0,
+) -> tuple[list[list[float | None]], list[list[float | None]]]:
+    """(distances km, durations min) between `points[sources]` and `points[destinations]`; None where no road links two points."""
+    coords = ";".join(f"{p.lon},{p.lat}" for p in points)
+    params = {
+        "sources": ";".join(map(str, sources)), "destinations": ";".join(map(str, destinations)),
+        "annotations": "duration,distance",
+    }
+    http = session or requests
+    try:
+        resp = http.get(f"{base_url}/table/v1/driving/{coords}", params=params, headers={"User-Agent": USER_AGENT}, timeout=timeout)
+        resp.raise_for_status()
+        data = resp.json()
+    except (requests.RequestException, ValueError) as exc:
+        raise RoutingError(f"Calcul de détours impossible : {exc}") from exc
+    if data.get("code") != "Ok" or "distances" not in data or "durations" not in data:
+        raise RoutingError(f"Calcul de détours impossible ({data.get('code', 'réponse invalide')}).")
+    km = [[None if v is None else v / 1000.0 for v in row] for row in data["distances"]]
+    minutes = [[None if v is None else v / 60.0 for v in row] for row in data["durations"]]
+    return km, minutes

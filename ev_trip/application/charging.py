@@ -61,8 +61,13 @@ def fetch_stations(
     stations: StationSource | None = None,
     detour_fn: Callable[..., tuple[float, float]] | None = None,
     sleep: Callable[[float], None] = time.sleep,
+    table_fn: Callable[..., tuple[list[list[float | None]], list[list[float | None]]]] | None = None,
+    path_fn: PathFn | None = None,
 ) -> StationPrefetch:
-    """Corridor stations and the real detour of the `max_candidates` closest ones (estimated as the crow flies)."""
+    """Corridor stations and the real detour of the `max_candidates` closest ones (estimated as the crow flies).
+
+    Detours come from grouped OSRM `table` requests; if that fails (or `detour_fn` is given) they are routed one by one.
+    """
     cfg = cfg or ChargingConfig()
     if stations is None:
         from ev_trip.providers.overpass import OverpassStationSource
@@ -81,7 +86,13 @@ def fetch_stations(
         km, dist = nearest_on_route(route, st.point, cum)
         near.append((estimate_detour(dist, cfg)[0], st, km))
     near.sort(key=lambda t: t[0])
-    detour = detour_fn or (lambda r, st, km, c, cum_: osrm_detour(r, st, km, c, cum=cum_))
+    if detour_fn is None:
+        try:
+            out.detours = osrm_detours(route, [(st, km) for _, st, km in near[: cfg.max_candidates]], cfg, cum=cum, table_fn=table_fn)
+            return out
+        except (RoutingError, EVTripError) as exc:
+            log.warning("Détours : requête groupée impossible, un par un : %s", exc)
+    detour = detour_fn or (lambda r, st, km, c, cum_: osrm_detour(r, st, km, c, cum=cum_, path_fn=path_fn))
     for n, (_, st, km) in enumerate(near[: cfg.max_candidates]):
         if n and cfg.osrm_pause_s:
             sleep(cfg.osrm_pause_s)
@@ -91,6 +102,38 @@ def fetch_stations(
             log.warning("Détours : OSRM indisponible : %s", exc)
             out.osrm_error = user_message(exc)
             break
+    return out
+
+
+TABLE_CHUNK = 20  # stations per table request (3 points each: the public server limits a table to 100 points)
+
+
+def osrm_detours(
+    route: Route,
+    items: list[tuple[Station, float]],
+    cfg: ChargingConfig,
+    *,
+    cum: list[float] | None = None,
+    table_fn: Callable[..., tuple[list[list[float | None]], list[list[float | None]]]] | None = None,
+    chunk: int = TABLE_CHUNK,
+) -> dict[str, tuple[float, float]]:
+    """Real detours (km, min) of (station, route km) pairs from a few OSRM `table` requests, same measure as `osrm_detour`."""
+    if table_fn is None:
+        from ev_trip.providers.osrm import osrm_table as table_fn
+    cum = cum or cumulative_km(route.coordinates)
+    out: dict[str, tuple[float, float]] = {}
+    for start in range(0, len(items), chunk):
+        part = items[start : start + chunk]
+        n = len(part)
+        anchors = [detour_anchors_km(km, cum[-1], cfg) for _, km in part]
+        points = [point_at_km(route, a, cum) for a, _ in anchors] + [st.point for st, _ in part] + [point_at_km(route, b, cum) for _, b in anchors]
+        # rows: A_i then S_i; columns: S_j then B_j (points are A, S, B in this order)
+        dist, minutes = table_fn(points, list(range(2 * n)), list(range(n, 3 * n)))
+        for i, (st, _) in enumerate(part):
+            legs = [(dist[i][i], minutes[i][i]), (dist[n + i][n + i], minutes[n + i][n + i])]  # A -> S, S -> B
+            if any(d is None or t is None for d, t in legs):
+                continue  # no road: left to the one-by-one search
+            out[st.id] = detour_from_via(route, cum, anchors[i][0], anchors[i][1], sum(d for d, _ in legs), sum(t for _, t in legs))
     return out
 
 
