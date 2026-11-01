@@ -331,12 +331,9 @@ def stations_table(charging: dict | None, requested: bool, sort: dict | None = N
 
 def via_rows(values: list[str] | None) -> list:
     """One input and one delete button per intermediate stop (pattern-matching ids: `via-input`, `via-del`)."""
-    return [html.Div([
-        html.Label(f"Étape {i}", className="form-label"),
-        dbc.InputGroup([
-            dbc.Input(id={"type": "via-input", "index": i - 1}, type="text", value=text, placeholder="Étape", debounce=True),
-            dbc.Button("✕", id={"type": "via-del", "index": i - 1}, color="secondary", outline=True),
-        ]),
+    return [dbc.InputGroup([
+        dbc.Input(id={"type": "via-input", "index": i - 1}, type="text", value=text, placeholder=f"Étape {i}", debounce=True),
+        dbc.Button("✕", id={"type": "via-del", "index": i - 1}, color="secondary", outline=True),
     ], className="mb-2") for i, text in enumerate(values or [], 1)]
 
 

@@ -72,7 +72,7 @@ def tab_trip():
             _group("Départ", dbc.Input(id="origin", type="text", value=d["origin"], placeholder="Paris", debounce=True)),
             html.Div(id="via-rows"),
             _group("Destination", dbc.Input(id="destination", type="text", value=d["destination"], placeholder="Saint-Lô", debounce=True)),
-            dbc.Button("+ Ajouter une étape", id="via-add", color="link", size="sm", className="p-0 mb-2"),
+            html.Div(dbc.Button("+ Ajouter une étape", id="via-add", color="link", size="sm", className="p-0"), className="mb-2"),
             html.Label("Optimisation", htmlFor="profile", className="form-label"),
             dcc.Dropdown(id="profile", options=PROFILE_OPTIONS, value=d["profile"], clearable=False, searchable=False, className="mb-2"),
         ),

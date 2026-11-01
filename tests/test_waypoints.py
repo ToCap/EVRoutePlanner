@@ -110,7 +110,7 @@ def test_form_editing_adds_before_the_limit_and_removes_the_clicked_stop():
 def test_rows_have_an_input_and_a_delete_button_per_stop():
     rows = ui.via_rows(["Rouen", "Lisieux"])
     text = str(rows)
-    assert len(rows) == 2 and "Étape 2" in text and "'index': 1" in text and "via-del" in text and "Rouen" in text
+    assert len(rows) == 2 and "placeholder='Étape 2'" in text and "form-label" not in text and "'index': 1" in text and "via-del" in text and "Rouen" in text
     assert ui.via_rows(None) == []
 
 
