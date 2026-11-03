@@ -115,6 +115,9 @@ def plan_stops(report: TripReport, suggestions: list[StationSuggestion], max_det
         need += 100.0 * half / cap  # return leg of the detour
         after = _clamp(need, arr, max(arr, high))
         add_kwh = cap * (after - arr) / 100.0
+        if add_kwh < 0.05:  # no charge needed here: drive past this station
+            pos, soc = sug.route_km, soc_after_leg(soc, pos, sug.route_km, ref)
+            continue
         minutes = _charge_time_min(sug.station, add_kwh, cc)
         price, _ = resolve_price(sug.station, tariffs)
         cost = None if price is None else add_kwh / cc.charge_efficiency * price

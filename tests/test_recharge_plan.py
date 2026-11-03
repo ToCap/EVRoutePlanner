@@ -127,3 +127,8 @@ def test_wanted_arrival_charge_above_the_window_top_still_gets_a_plan():
     stops, warns = plan_stops(_report(150.0, arrival=90.0), [_sug(100), _sug(140)], 5.0)
     assert not warns and stops
     assert stops[-1].soc_after_pct > 80.0 and final_soc_with_stops(_report(150.0, arrival=90.0), stops) >= 90.0 - 1e-6
+
+
+def test_no_stop_without_charge_is_listed():
+    stops, _ = plan_stops(_report(300.0, arrival=30.0), [_sug(150), _sug(155), _sug(160)], 5.0)
+    assert stops and all(s.charge_min > 0 and s.soc_after_pct > s.soc_arrival_pct for s in stops)
