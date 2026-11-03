@@ -79,6 +79,12 @@ def banners(entry: TripEntry, data: dict) -> list:
         if not short:
             return []
         detail = " · ".join((f"{s['label']} : " if len(data["scenarios"]) > 1 else "") + f"{s['final_soc']:.1f} %" for s in short)
+        plan = data.get("charging") or {}
+        if plan.get("covered"):  # a recharge plan reaches the wanted charge: say so instead of the bare shortfall
+            km = ", ".join(f"{s['km']:g}" for s in plan["stops"])
+            word = "arrêt planifié" if len(plan["stops"]) == 1 else "arrêts planifiés"
+            return [dbc.Alert([html.Strong(f"Arrivée sous la charge souhaitée ({data['arrival_soc']:g} %) sans recharge : "),
+                               f"{detail}, {len(plan['stops'])} {word} (km {km})"], color="warning", className="py-1 mb-0")]
         return [dbc.Alert([html.Strong(f"Arrivée sous la charge souhaitée ({data['arrival_soc']:g} %) : "), detail],
                           color="warning", className="py-1 mb-0")]
     # the scenario name is shown only when several scenarios are displayed
@@ -160,7 +166,10 @@ def _status_badge(s: dict, data: dict) -> dbc.Badge:
         if (data.get("charging") or {}).get("covered"):  # the recharge plan reaches the arrival: not alarming
             return dbc.Badge("sans recharge", color="warning", text_color="dark")
         return dbc.Badge(f"interrompu km {s['alert']['km']}", color="danger")
-    return dbc.Badge("sous le souhaité", color="warning", text_color="dark") if short_of_arrival(s, data) else dbc.Badge("arrivée", color="success")
+    if short_of_arrival(s, data):
+        label = "sans recharge" if (data.get("charging") or {}).get("covered") else "sous le souhaité"
+        return dbc.Badge(label, color="warning", text_color="dark")
+    return dbc.Badge("arrivée", color="success")
 
 
 def scenario_cards(data: dict) -> list:

@@ -132,3 +132,14 @@ def test_wanted_arrival_charge_above_the_window_top_still_gets_a_plan():
 def test_no_stop_without_charge_is_listed():
     stops, _ = plan_stops(_report(300.0, arrival=30.0), [_sug(150), _sug(155), _sug(160)], 5.0)
     assert stops and all(s.charge_min > 0 and s.soc_after_pct > s.soc_arrival_pct for s in stops)
+
+
+def test_short_of_arrival_alert_mentions_the_plan_when_covered():
+    from interfaces.dash_ui import components as ui
+
+    s = {"key": "moyenne", "label": "Moyenne", "completed": True, "final_soc": 75.5, "alert": None}
+    data = {"trip_km": 55.1, "min_soc": 10.0, "arrival_soc": 90.0, "scenarios": [s]}
+    assert "sans recharge" not in str(ui.banners(None, data)[0])
+    covered = {**data, "charging": {"covered": True, "stops": [{"km": 30.0}]}}
+    assert "sans recharge" in str(ui.banners(None, covered)[0]) and "1 arrêt planifié (km 30)" in str(ui.banners(None, covered)[0])
+    assert ui._status_badge(s, covered).children == "sans recharge"
