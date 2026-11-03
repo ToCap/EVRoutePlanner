@@ -1,7 +1,7 @@
 """Multi-stop recharge plan: portion score, couples, chaining, charge duration."""
 from ev_trip.domain.charging import Station, StationSuggestion
 from ev_trip.domain.models import Route, Slice, VehicleParams
-from ev_trip.domain.recharge import plan_stops, portion_score
+from ev_trip.domain.recharge import final_soc_with_stops, plan_stops, portion_score
 from ev_trip.domain.simulation import simulate_all
 from ev_trip.domain.trip_report import TripReport
 
@@ -121,3 +121,9 @@ def test_chart_has_the_recharge_curve_when_covered():
     assert [t.name for t in ui.charge_figure(data).data] == ["Charge restante", "Seuil minimum"]
     data["charging"] = {"covered": True, "curve": [{"x": 0, "y": 100}, {"x": 150, "y": 40}, {"x": 150, "y": 70}, {"x": 260, "y": 19}]}
     assert [t.name for t in ui.charge_figure(data).data] == ["Sans recharge", "Avec recharge", "Seuil minimum"]
+
+
+def test_wanted_arrival_charge_above_the_window_top_still_gets_a_plan():
+    stops, warns = plan_stops(_report(150.0, arrival=90.0), [_sug(100), _sug(140)], 5.0)
+    assert not warns and stops
+    assert stops[-1].soc_after_pct > 80.0 and final_soc_with_stops(_report(150.0, arrival=90.0), stops) >= 90.0 - 1e-6

@@ -56,7 +56,7 @@ def plan_stops(report: TripReport, suggestions: list[StationSuggestion], max_det
     total_km = moy.trip_km
     floor = arrival_floor_pct(veh, cc.arrival_margin_pct)
     reserve = veh.min_soc_pct + cc.arrival_margin_pct
-    high = cc.target_max_soc_pct
+    high = cc.target_max_soc_pct if floor <= cc.target_max_soc_pct else 100.0  # a wanted arrival charge above the window top needs a full charge
 
     def soc_after_leg(soc: float, a: float, b: float, scenario: str) -> float:
         return soc - 100.0 * energy_between(slices, cfg, temp, scenario, a, b) / cap
