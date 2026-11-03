@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -31,6 +32,8 @@ OVERPASS_URLS = [
     "https://overpass.kumi.systems/api/interpreter",
 ]
 OVERPASS_URL = OVERPASS_URLS[0]
+MIRROR_COOLDOWN_S = 60.0  # a mirror that just failed is skipped for a while
+_QUERY_TIMEOUT = re.compile(r"\[timeout:(\d+)\]")
 
 
 def parse_retry_after(value: str | None, now: datetime | None = None) -> float | None:
@@ -85,7 +88,23 @@ class OverpassClient:
         self.timeout = timeout
         self.max_retry_after_s = max_retry_after_s  # cap on the wait imposed by Retry-After
         self._calls = 0  # each query starts on the next mirror
+        self._bad: dict[str, float] = {}  # mirror -> monotonic time until which it is skipped
         self._lock = threading.Lock()  # queries may run in several threads
+
+    def _pick(self, start: int) -> str:
+        """Next mirror from `start`, skipping those in cooldown (all of them if none is healthy)."""
+        now = time.monotonic()
+        with self._lock:
+            for k in range(len(self.urls)):
+                url = self.urls[(start + k) % len(self.urls)]
+                if self._bad.get(url, 0.0) <= now:
+                    return url
+        return self.urls[start % len(self.urls)]
+
+    def _http_timeout(self, query: str) -> float:
+        """Read timeout: just above the server-side limit of the query when it states one."""
+        m = _QUERY_TIMEOUT.search(query)
+        return min(self.timeout, float(m.group(1)) + 10.0) if m else self.timeout
 
     def run(self, query: str) -> list[dict]:
         """Runs a query and returns the elements; RoadClassificationError if Overpass stays unavailable."""
@@ -94,13 +113,9 @@ class OverpassClient:
             first = self._calls = self._calls + 1
         for attempt in range(self.retries):
             retry_after: float | None = None
+            url = self._pick(first + attempt)  # a different healthy server on each attempt and query
             try:
-                resp = self.http.post(
-                    self.urls[(first + attempt) % len(self.urls)],  # a different server on each attempt and query
-                    data={"data": query},
-                    headers=self.headers,
-                    timeout=self.timeout,
-                )
+                resp = self.http.post(url, data={"data": query}, headers=self.headers, timeout=self._http_timeout(query))
                 if resp.status_code in (429, 502, 503, 504):
                     retry_after = parse_retry_after(resp.headers.get("Retry-After"))
                     hint = f", Retry-After : {retry_after:g} s" if retry_after is not None else ""
@@ -114,6 +129,9 @@ class OverpassClient:
                 return data.get("elements", [])
             except (requests.RequestException, ValueError) as exc:
                 last_error = exc
+                if isinstance(exc, requests.RequestException):
+                    with self._lock:
+                        self._bad[url] = time.monotonic() + MIRROR_COOLDOWN_S
                 log.warning("Overpass : tentative %d/%d en échec : %s", attempt + 1, self.retries, exc)
                 if attempt >= self.retries - 1:
                     break
@@ -163,7 +181,8 @@ class OverpassRoadClassifier(OverpassClient):
 # --- charging stations ----------------------------------------------------
 
 
-CORRIDOR_WORKERS = 3  # corridor queries running at once (each starts on another mirror)
+CORRIDOR_WORKERS = 2  # corridor queries running at once (more triggers HTTP 429 on public mirrors)
+CORRIDOR_TIMEOUT_S = 30  # server-side limit of a corridor query: a busy mirror should fail fast, another one answers
 EMPTY_RETRIES = 2  # extra attempts (other mirrors) when a corridor query returns no element
 CORRIDOR_CHUNK_POINTS = 25  # route points per query: long polylines make Overpass answer empty or time out
 
@@ -181,7 +200,7 @@ def corridor_queries(route: Route, radius_m: float, step_km: float = 1.5, chunk:
         coords = ",".join(f"{p.lat:.5f},{p.lon:.5f}" for p in pts[start : start + chunk])
         around = f"around:{radius_m:g},{coords}"
         queries.append(
-            "[out:json][timeout:90];("
+            f"[out:json][timeout:{CORRIDOR_TIMEOUT_S}];("
             f'node({around})["amenity"="charging_station"];'
             f'way({around})["amenity"="charging_station"];'
             ");out center tags;"
