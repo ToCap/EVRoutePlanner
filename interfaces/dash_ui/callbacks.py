@@ -9,7 +9,7 @@ import dash_bootstrap_components as dbc
 
 from ev_trip.application.messages import user_message
 from interfaces.dash_ui import components as ui
-from interfaces.dash_ui.layout import BADGE_HIDDEN, BADGE_SHOWN, NOTIF_BTN_HIDDEN, NOTIF_BTN_SHOWN, SPINNER_HIDDEN, SPINNER_SHOWN
+from interfaces.dash_ui.layout import BADGE_HIDDEN, BADGE_SHOWN, BOUNDS_OPTIONS, NOTIF_BTN_HIDDEN, NOTIF_BTN_SHOWN, SPINNER_HIDDEN, SPINNER_SHOWN
 from interfaces.dash_ui.params import FieldError, charge_min_id, charge_min_key, from_query, request_from_values, to_query
 from ev_trip.application.jobs import MAX_WAYPOINTS, REFINING, TripService
 from ev_trip.domain.config import CHARGER_LEVELS
@@ -100,7 +100,11 @@ def notify(incoming: list[dict] | None, history: list[dict] | None):
 
 def map_bounds(service: TripService, key: str | None):
     entry = service.get(key) if key else None
-    return no_update if entry is None else ui.bounds_of(build_view_data(entry.report))
+    if entry is None:
+        return no_update
+    # `bounds` only sets the initial view in dash-leaflet: `viewport` refits the map on every new trip
+    return {"bounds": ui.bounds_of(build_view_data(entry.report)), "transition": "flyToBounds",
+            "options": {**BOUNDS_OPTIONS, "maxZoom": 16, "duration": 0.8}}
 
 
 def register(app, service: TripService) -> None:
@@ -205,6 +209,6 @@ def register(app, service: TripService) -> None:
     def on_notifications(incoming, history):
         return notify(incoming, history)
 
-    @app.callback(Output("map", "bounds"), Input("trip-key", "data"), prevent_initial_call=True)
+    @app.callback(Output("map", "viewport"), Input("trip-key", "data"), prevent_initial_call=True)
     def on_bounds(key):
         return map_bounds(service, key)

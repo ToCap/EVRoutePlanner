@@ -157,7 +157,9 @@ def test_refresh_renders_every_panel_and_keeps_polling_while_busy():
     assert "Borne A" in str(done["stations"]) and "Ionity" in str(done["stations"])
     assert len(done["graph"].data) == 2  # the chosen scenario + threshold
     assert "Détail" not in str(done["detail"]) and "kWh/100" in str(done["detail"])
-    (south, west), (north, east) = callbacks.map_bounds(svc, key)
+    view = callbacks.map_bounds(svc, key)
+    assert view["transition"] == "flyToBounds" and view["options"]["paddingTopLeft"]
+    (south, west), (north, east) = view["bounds"]
     assert south < north and west <= east
 
 
