@@ -187,4 +187,5 @@ def build_charging_data(plan) -> dict:
         "max_detour_km": plan.max_detour_km,
         "need_level": plan.need_level,
         "warnings": plan.warnings,
+        "type_filtered": getattr(plan, "type_filtered", False),
     }

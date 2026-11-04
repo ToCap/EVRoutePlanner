@@ -184,7 +184,7 @@ def plan_charging(
     route = report.route
     cum = cumulative_km(route.coordinates)
     level = need_level(report)
-    plan = ChargingPlan([], 0, 0, max_detour_km, level)
+    plan = ChargingPlan([], 0, 0, max_detour_km, level, type_filtered=bool(chargers))
 
     if prefetch is not None and prefetch.error is not None:
         plan.warnings.append(f"Recherche des bornes impossible ({prefetch.error}).")
