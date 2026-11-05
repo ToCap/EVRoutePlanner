@@ -6,6 +6,7 @@ import json
 import logging
 import threading
 import time
+from collections import OrderedDict
 from concurrent.futures import Future
 from dataclasses import asdict, dataclass, field, replace
 from typing import Callable, Protocol
@@ -17,6 +18,7 @@ from ev_trip.domain.charging import ChargingPlan, TariffTable
 from ev_trip.domain.config import CHARGER_LEVELS, DEFAULT_CHARGERS, DEFAULT_SCENARIO, SCENARIOS, ConsumptionConfig
 from ev_trip.domain.models import Route, VehicleParams
 from ev_trip.domain.route_profiles import ProfileReports
+from ev_trip.domain.simulation import simulate_all
 from ev_trip.domain.trip_report import TripReport
 
 log = logging.getLogger(__name__)
@@ -31,6 +33,7 @@ STAGE_STATIONS = "Recherche des bornes…"
 
 
 MAX_WAYPOINTS = 5  # intermediate stops of a trip
+ROUTE_CACHE_SIZE = 10  # finished routes (and station searches) kept to recompute a trip with other environment or charge settings
 
 
 @dataclass(frozen=True)
@@ -92,6 +95,11 @@ class TripRequest:
     def key(self) -> str:
         return hashlib.sha1(json.dumps(asdict(self), sort_keys=True).encode("utf-8")).hexdigest()
 
+    def route_key(self) -> str:
+        """Identifies the route alone: the same key means the same itinerary, whatever the environment or charge settings."""
+        parts = (self.origin, self.destination, self.waypoints, self.use_overpass, self.profile, self.eco_extra_pct, self.eco_exit_variants)
+        return hashlib.sha1(json.dumps(parts).encode("utf-8")).hexdigest()
+
     def vehicle(self) -> VehicleParams:
         return VehicleParams(self.battery_kwh * self.battery_health_pct / 100.0, self.start_soc, self.min_soc, self.arrival_soc)  # real capacity
 
@@ -119,6 +127,7 @@ class TripEntry:
     variants: int = 0  # motorway exit variants still to search by the background task (0 = none)
     base: TripReport | None = None  # fast route, kept only until the exit search has run
     fast_is_eco: bool = False  # consumption profile: the fastest route is also the least energy one
+    route_key: str = ""  # `TripRequest.route_key()`: entries of the same route share the cached itinerary
 
 
 def only_scenario(report: TripReport, scenario: str) -> TripReport:
@@ -202,6 +211,9 @@ class TripService:
         self.run_profiles = run_profiles
         self.refine = refine
         self.plan = plan
+        self._routes: OrderedDict[str, TripEntry] = OrderedDict()  # route key -> finished entry (its route and slices are reused)
+        self._stations: OrderedDict[tuple[str, float], StationPrefetch] = OrderedDict()  # (route key, max detour) -> stations
+        self._cache_lock = threading.Lock()
 
     def get(self, key: str) -> TripEntry | None:
         return self.store.get(key)
@@ -212,6 +224,9 @@ class TripService:
         entry = self.store.get(key)
         if entry is not None:
             return key, entry
+        cached = self._cached_route(request.route_key())
+        if cached is not None:  # same itinerary, other environment or charge settings: simulate again, no network
+            return key, self._start_from_route(key, request, cached)
         eco = request.profile == "eco"
         later = request.eco_exit_variants if eco and self.variants is not None and request.use_overpass and not request.waypoints else 0  # exits: background task
         via = {"via": request.waypoints} if request.waypoints else {}  # passed only with stops: plain runners keep their call
@@ -236,22 +251,72 @@ class TripService:
             report, REFINING if busy else DONE, None, False, request.max_detour_km, None, request.chargers,
             (request.charge_from_pct, request.charge_to_pct), request.charge_minutes, 1 if busy else 0, request.scenario,
             STAGE_VARIANTS if later else STAGE_REFINE if report.refinable else (STAGE_STATIONS if request.wants_charging else ""),
-            later, base, fast_is_eco,
+            later, base, fast_is_eco, request.route_key(),
         )
         self.store.set(key, entry)
         if busy and self.store.acquire(key):  # one task per trip
             self.runner(lambda: self.run_job(key))
+        else:
+            self._remember(key)
         return key, entry
+
+    def _cached_route(self, route_key: str) -> TripEntry | None:
+        with self._cache_lock:
+            entry = self._routes.get(route_key)
+            if entry is not None:
+                self._routes.move_to_end(route_key)
+            return entry
+
+    def _remember(self, key: str) -> None:
+        """Keeps a finished entry (final route, no pending task) for the next trip on the same itinerary."""
+        entry = self.store.get(key)
+        if entry is None or entry.state != DONE or entry.pending or entry.variants or entry.report.refinable or not entry.route_key:
+            return
+        with self._cache_lock:
+            self._routes[entry.route_key] = entry
+            self._routes.move_to_end(entry.route_key)
+            while len(self._routes) > ROUTE_CACHE_SIZE:
+                self._routes.popitem(last=False)
+
+    def _start_from_route(self, key: str, request: TripRequest, cached: TripEntry) -> TripEntry:
+        """Entry on the cached itinerary: new simulation with the request's vehicle, then the plan only (stations come from the cache)."""
+        base = cached.report
+        sims = simulate_all(base.slices, request.vehicle(), request.temp_c, base.config)
+        report = only_scenario(replace(base, simulations=sims, full_simulations=None), request.scenario)
+        busy = request.wants_charging
+        entry = TripEntry(
+            report, REFINING if busy else DONE, None, cached.refined, request.max_detour_km, None, request.chargers,
+            (request.charge_from_pct, request.charge_to_pct), request.charge_minutes, 1 if busy else 0, request.scenario,
+            STAGE_STATIONS if busy else "", 0, None, cached.fast_is_eco, request.route_key(),
+        )
+        self.store.set(key, entry)
+        if busy and self.store.acquire(key):
+            self.runner(lambda: self.run_job(key))
+        else:
+            self._remember(key)
+        return entry
 
     def _start_prefetch(self, entry: TripEntry, route: Route, cfg) -> Future | None:
         """Starts the network part of the station search in its own thread (it depends on the route geometry only)."""
         if self.prefetch is None or entry.max_detour_km <= 0:
             return None
         future: Future = Future()
+        cache_key = (entry.route_key, entry.max_detour_km)
+        with self._cache_lock:
+            hit = self._stations.get(cache_key) if entry.route_key else None
+        if hit is not None:  # same route and detour: no network call
+            future.set_result(hit)
+            return future
 
         def work() -> None:
             try:
-                future.set_result(self.prefetch(route, entry.max_detour_km, cfg))
+                result = self.prefetch(route, entry.max_detour_km, cfg)
+                if entry.route_key and result.error is None and result.osrm_error is None:  # failures are never kept
+                    with self._cache_lock:
+                        self._stations[cache_key] = result
+                        while len(self._stations) > ROUTE_CACHE_SIZE:
+                            self._stations.popitem(last=False)
+                future.set_result(result)
             except Exception as exc:  # the planner then searches by itself
                 log.exception("Préchargement des bornes impossible")
                 future.set_exception(exc)
@@ -312,6 +377,8 @@ class TripService:
             if plan is not None:
                 changes["charging"] = plan
         self._finish(key, entry, errors, **changes)
+        if not errors and not note:  # a failed exit search is retried by the next computation, not cached
+            self._remember(key)
 
     def _search_variants(self, profiles: ProfileReports, k: int) -> tuple[ProfileReports, str | None]:
         """Exit variants, retried after each failure; (profiles, warning) once every attempt has failed."""
